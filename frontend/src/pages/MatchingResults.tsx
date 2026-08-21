@@ -21,7 +21,21 @@ export const MatchingResults = () => {
         });
         if (response.ok) {
           const data = await response.json();
-          setResults(data);
+          if (data.candidate_pools) {
+            setResults(data.candidate_pools);
+            if (data.status === "optimized" && data.crew) {
+              const preSelected: Record<string, string[]> = {};
+              data.crew.forEach((c: any) => {
+                if (!preSelected[c.role_id]) {
+                  preSelected[c.role_id] = [];
+                }
+                preSelected[c.role_id].push(String(c.worker_id));
+              });
+              setSelectedWorkers(preSelected);
+            }
+          } else {
+            setResults(data);
+          }
         }
       } catch (error) {
         console.error(error);

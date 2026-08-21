@@ -203,12 +203,18 @@ def optimize_crew(event_id: int, db: Session = Depends(get_db), current_user: mo
     # Run optimization engine (Phase 1: Eligibility filtering)
     results = matching.get_eligible_workers(event, roles, all_workers, db)
     
-    # Format for JSON response
+    # Format for JSON response and prepare for Phase 3
     formatted_results = []
+    candidates_by_role = {}
+    
     for role in roles:
         role_data = results.get(role.id, {})
         role_candidates = role_data.get("eligible_candidates", [])
         excluded_summary = role_data.get("excluded_summary", {})
+        
+        # Phase 2: Worker Scoring
+        ranked_candidates = matching.score_and_rank_candidates(event, role, role_candidates)
+        candidates_by_role[role.id] = ranked_candidates
         
         formatted_results.append({
             "role": {
@@ -226,14 +232,20 @@ def optimize_crew(event_id: int, db: Session = Depends(get_db), current_user: mo
                     "priceMin": c["worker"].price_min,
                     "priceMax": c["worker"].price_max,
                     "score": c["score"],
+                    "scoreBreakdown": c.get("scoreBreakdown", {}),
                     "matchReasons": c["matchReasons"]
-                } for c in role_candidates
+                } for c in ranked_candidates
             ],
             "excluded_summary": excluded_summary,
-            "eligible_count": len(role_candidates)
+            "eligible_count": len(ranked_candidates)
         })
         
-    return formatted_results
+    # Phase 3: Crew Optimization
+    optimization_result = matching.optimize_crew_combinations(event, roles, candidates_by_role)
+    
+    # Merge existing payload to maintain compatibility
+    optimization_result["candidate_pools"] = formatted_results
+    return optimization_result
 
 @app.post("/api/crew/confirm")
 def confirm_crew(assignments: List[schemas.CrewAssignmentCreate], db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_user)):

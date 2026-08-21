@@ -157,6 +157,8 @@ def run_tests():
     resp = requests.get(f"{BASE_URL}/crew/optimize/{event_id}", headers=headers)
     assert resp.status_code == 200, resp.text
     results = resp.json()
+    if "candidate_pools" in results:
+        results = results["candidate_pools"]
     
     print("\nAPI Response received:")
     import json
