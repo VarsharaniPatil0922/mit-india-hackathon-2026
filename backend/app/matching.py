@@ -92,6 +92,16 @@ def get_eligible_workers(event: Event, roles: List[EventRole], all_workers: List
         }
         
         for worker in all_workers:
+            # Phase 5: Exclude workers who have been marked as no_show for this event
+            no_show = db.query(CrewAssignment).filter(
+                CrewAssignment.event_id == event.id,
+                CrewAssignment.worker_id == worker.id,
+                CrewAssignment.status == "no_show"
+            ).first()
+            if no_show:
+                excluded_summary["unavailable"] += 1
+                continue
+                
             if not filter_skill(worker, role):
                 excluded_summary["wrong_skill"] += 1
                 continue

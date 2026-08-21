@@ -9,8 +9,11 @@ export const MatchingResults = () => {
   const navigate = useNavigate();
   
   const [results, setResults] = useState<any[]>([]);
+  const [backupPools, setBackupPools] = useState<any[]>([]);
   const [selectedWorkers, setSelectedWorkers] = useState<Record<string, string[]>>({});
   const [loading, setLoading] = useState(true);
+  const [simulatingNoShow, setSimulatingNoShow] = useState(false);
+  const [cascadeSteps, setCascadeSteps] = useState<string[]>([]);
 
   useEffect(() => {
     const fetchOptimization = async () => {
@@ -23,6 +26,9 @@ export const MatchingResults = () => {
           const data = await response.json();
           if (data.candidate_pools) {
             setResults(data.candidate_pools);
+            if (data.backup_pools) {
+              setBackupPools(data.backup_pools);
+            }
             if (data.status === "optimized" && data.crew) {
               const preSelected: Record<string, string[]> = {};
               data.crew.forEach((c: any) => {
@@ -99,8 +105,94 @@ export const MatchingResults = () => {
     }
   };
 
+  const handleSimulateNoShow = async (workerId: string) => {
+    if (!user || !user.token) return;
+    
+    setSimulatingNoShow(true);
+    setCascadeSteps(["Worker unavailable"]);
+    
+    setTimeout(() => setCascadeSteps(prev => [...prev, "Candidate pool updated"]), 600);
+    setTimeout(() => setCascadeSteps(prev => [...prev, "Constraints recalculated"]), 1200);
+    setTimeout(() => setCascadeSteps(prev => [...prev, "Workers rescored"]), 1800);
+    setTimeout(() => setCascadeSteps(prev => [...prev, "Crew re-optimized"]), 2400);
+
+    try {
+      const response = await fetch('http://localhost:8000/api/crew/replace-worker', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${user.token}`
+        },
+        body: JSON.stringify({ event_id: Number(eventId), worker_id: Number(workerId) })
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        
+        setTimeout(() => {
+            setCascadeSteps(prev => [...prev, "New crew confirmed"]);
+            
+            // Apply new state
+            if (data.new_crew) {
+              const preSelected: Record<string, string[]> = {};
+              data.new_crew.forEach((c: any) => {
+                if (!preSelected[String(c.role_id)]) {
+                  preSelected[String(c.role_id)] = [];
+                }
+                preSelected[String(c.role_id)].push(String(c.worker_id));
+              });
+              setSelectedWorkers(preSelected);
+            }
+            if (data.backup_pools) {
+              setBackupPools(data.backup_pools);
+            }
+            
+            // Refetch original to get updated candidate pools (or just keep the old candidates for UI display)
+            // Ideally we'd update the UI completely, but for demo showing the changes is most important.
+            // Let's refetch to get clean state
+            fetch(`http://localhost:8000/api/crew/optimize/${eventId}`, {
+                headers: { 'Authorization': `Bearer ${user.token}` }
+            }).then(r => r.json()).then(newData => {
+                if (newData.candidate_pools) {
+                    setResults(newData.candidate_pools);
+                }
+                setTimeout(() => setSimulatingNoShow(false), 2000);
+            });
+            
+        }, 3000);
+      } else {
+        alert("Simulation failed");
+        setSimulatingNoShow(false);
+      }
+    } catch (error) {
+      console.error(error);
+      alert("Simulation failed");
+      setSimulatingNoShow(false);
+    }
+  };
+
   if (loading) {
     return <div className="max-w-7xl mx-auto px-4 py-12 text-center text-slate-500">Optimizing crew selection with AI...</div>;
+  }
+  
+  if (simulatingNoShow) {
+    return (
+      <div className="max-w-7xl mx-auto px-4 py-24 text-center">
+        <h2 className="text-2xl font-bold text-slate-800 mb-8 animate-pulse">RE-OPTIMIZING...</h2>
+        <div className="space-y-4 max-w-sm mx-auto">
+          {cascadeSteps.map((step, i) => (
+            <div key={i} className="flex flex-col items-center">
+              <div className="text-lg font-medium text-slate-700 bg-white shadow-sm border border-slate-200 py-3 px-6 rounded-lg w-full">
+                {step}
+              </div>
+              {i < cascadeSteps.length - 1 && (
+                <div className="h-6 w-px bg-slate-300 my-1"></div>
+              )}
+            </div>
+          ))}
+        </div>
+      </div>
+    );
   }
 
   return (
@@ -182,7 +274,15 @@ export const MatchingResults = () => {
                           </div>
                         </div>
 
-                        <div className="md:ml-6 flex-shrink-0">
+                        <div className="md:ml-6 flex-shrink-0 flex space-x-2">
+                          {isSelected && (
+                            <button
+                              onClick={() => handleSimulateNoShow(worker.id)}
+                              className="px-4 py-2 text-sm rounded-lg font-medium bg-red-50 text-red-700 border border-red-200 hover:bg-red-100 transition-colors"
+                            >
+                              🛡️ SIMULATE NO-SHOW
+                            </button>
+                          )}
                           <button
                             onClick={() => handleSelect(role.id, worker.id, role.quantityNeeded)}
                             disabled={!isSelected && isFulfilled}
@@ -206,6 +306,39 @@ export const MatchingResults = () => {
           );
         })}
       </div>
+
+      {backupPools.length > 0 && (
+        <div className="mt-12 bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+          <div className="bg-slate-50 px-6 py-4 border-b border-slate-200">
+            <h2 className="text-xl font-bold text-slate-800">BACKUP OPTIONS</h2>
+            <p className="text-sm text-slate-500">Ranked standby candidates for potential replacements.</p>
+          </div>
+          <div className="p-6 space-y-6">
+            {backupPools.map((pool: any, pIdx: number) => (
+              <div key={pIdx}>
+                <h3 className="text-lg font-bold text-slate-700 mb-3">{pool.role_name}</h3>
+                {pool.backups.length === 0 ? (
+                  <p className="text-slate-500 italic text-sm">No backups available.</p>
+                ) : (
+                  <ul className="space-y-2">
+                    {pool.backups.map((backup: any, bIdx: number) => (
+                      <li key={bIdx} className="flex justify-between items-center p-3 bg-slate-50 rounded border border-slate-100">
+                        <span className="font-medium text-slate-700">
+                          Backup {backup.rank} &mdash; {backup.name} &mdash; {backup.score}
+                        </span>
+                        <span className="text-sm text-slate-500 font-medium">
+                          <IndianRupee className="w-3 h-3 inline mr-1"/>
+                          {backup.estimated_price}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       <div className="fixed bottom-0 left-0 right-0 bg-white border-t border-slate-200 shadow-2xl p-4">
         <div className="max-w-7xl mx-auto flex justify-between items-center">
