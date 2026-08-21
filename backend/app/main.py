@@ -1,7 +1,8 @@
 from fastapi import FastAPI, Depends, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
-from typing import List
+from typing import List, Dict, Any
+from pydantic import BaseModel
 
 from . import models, schemas, auth, matching
 from .database import engine, get_db
@@ -191,8 +192,7 @@ def get_event(event_id: int, db: Session = Depends(get_db), current_user: models
         "total_required_workers": total_workers
     }
 
-@app.get("/api/crew/optimize/{event_id}")
-def optimize_crew(event_id: int, db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_user)):
+def run_optimization_pipeline(event_id: int, db: Session):
     event = db.query(models.Event).filter(models.Event.id == event_id).first()
     if not event:
         raise HTTPException(status_code=404, detail="Event not found")
@@ -249,11 +249,28 @@ def optimize_crew(event_id: int, db: Session = Depends(get_db), current_user: mo
     # Phase 4: Backup Selection
     if optimization_result.get("status") == "optimized":
         selected_worker_ids = {w["worker_id"] for w in optimization_result.get("crew", [])}
+        
+        # Save new recommended crew to DB (Phase 5 requirement)
+        db.query(models.CrewAssignment).filter(
+            models.CrewAssignment.event_id == event_id,
+            models.CrewAssignment.status == "recommended"
+        ).delete()
+        
+        for w in optimization_result.get("crew", []):
+            new_assign = models.CrewAssignment(
+                event_id=event_id,
+                role_id=w["role_id"],
+                worker_id=w["worker_id"],
+                status="recommended",
+                price_agreed=w["estimated_price"]
+            )
+            db.add(new_assign)
+        db.commit()
+        
         backup_pools = []
         for role in roles:
             role_backups = []
             rank = 1
-            # candidates_by_role is already sorted by score (descending)
             for c in candidates_by_role.get(role.id, []):
                 worker = c["worker"]
                 if worker.id not in selected_worker_ids:
@@ -277,6 +294,114 @@ def optimize_crew(event_id: int, db: Session = Depends(get_db), current_user: mo
         optimization_result["backup_pools"] = []
         
     return optimization_result
+
+@app.get("/api/crew/optimize/{event_id}")
+def optimize_crew(event_id: int, db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_user)):
+    return run_optimization_pipeline(event_id, db)
+
+class ReplaceWorkerRequest(BaseModel):
+    event_id: int
+    worker_id: int
+
+@app.post("/api/crew/replace-worker")
+def replace_worker(req: ReplaceWorkerRequest, db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_user)):
+    event = db.query(models.Event).filter(models.Event.id == req.event_id).first()
+    worker = db.query(models.Worker).filter(models.Worker.id == req.worker_id).first()
+    
+    if not event or not worker:
+        raise HTTPException(status_code=404, detail="Event or worker not found")
+        
+    assignment = db.query(models.CrewAssignment).filter(
+        models.CrewAssignment.event_id == req.event_id,
+        models.CrewAssignment.worker_id == req.worker_id,
+        models.CrewAssignment.status.in_(["recommended", "confirmed"])
+    ).first()
+    
+    if not assignment:
+        raise HTTPException(status_code=400, detail="Worker is not part of the active crew for this event")
+        
+    # Get previous optimization data
+    previous_crew_assignments = db.query(models.CrewAssignment).filter(
+        models.CrewAssignment.event_id == req.event_id,
+        models.CrewAssignment.status.in_(["recommended", "confirmed"])
+    ).all()
+    
+    previous_crew_data = []
+    total_cost_before = 0
+    removed_worker_data = None
+    for a in previous_crew_assignments:
+        total_cost_before += a.price_agreed
+        w_data = {
+            "worker_id": a.worker_id,
+            "name": a.worker.name,
+            "role": a.role.role_name,
+            "estimated_price": a.price_agreed
+        }
+        previous_crew_data.append(w_data)
+        if a.worker_id == req.worker_id:
+            removed_worker_data = w_data
+            
+    # Mark as no_show
+    assignment.status = "no_show"
+    db.commit()
+    
+    # Re-optimize
+    new_opt = run_optimization_pipeline(req.event_id, db)
+    
+    if new_opt.get("status") != "optimized":
+        return {
+            "status": "no_feasible_crew",
+            "reason": "No feasible replacement crew exists"
+        }
+        
+    new_crew_data = new_opt.get("crew", [])
+    total_cost_after = sum(w["estimated_price"] for w in new_crew_data)
+    
+    # Calculate changes
+    old_by_role = {}
+    for w in previous_crew_data:
+        old_by_role.setdefault(w["role"], set()).add(w["name"])
+        
+    new_by_role = {}
+    for w in new_crew_data:
+        new_by_role.setdefault(w["role"], set()).add(w["name"])
+        
+    changes = []
+    for role_name in set(old_by_role.keys()).union(new_by_role.keys()):
+        old_set = old_by_role.get(role_name, set())
+        new_set = new_by_role.get(role_name, set())
+        removed = old_set - new_set
+        added = new_set - old_set
+        for r, a in zip(list(removed) + [None]*max(0, len(added)-len(removed)), list(added) + [None]*max(0, len(removed)-len(added))):
+            if r or a:
+                changes.append({
+                    "role": role_name,
+                    "removed": r,
+                    "added": a
+                })
+                
+    return {
+        "status": "reoptimized",
+        "trigger": {
+            "worker_id": req.worker_id,
+            "reason": "no_show"
+        },
+        "removed_worker": removed_worker_data,
+        "previous_crew": previous_crew_data,
+        "new_crew": new_crew_data,
+        "changes": changes,
+        "total_cost_before": total_cost_before,
+        "total_cost_after": total_cost_after,
+        "budget": event.budget,
+        "remaining_budget": event.budget - total_cost_after,
+        "reoptimization": {
+            "phase1": "completed",
+            "phase2": "completed",
+            "phase3": "completed"
+        },
+        "backup_pools": new_opt.get("backup_pools", [])
+    }
+
 
 @app.post("/api/crew/confirm")
 def confirm_crew(assignments: List[schemas.CrewAssignmentCreate], db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_user)):
