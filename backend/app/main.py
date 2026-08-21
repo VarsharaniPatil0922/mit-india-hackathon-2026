@@ -1,7 +1,8 @@
 from fastapi import FastAPI, Depends, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
-from typing import List
+from typing import List, Optional
+from fastapi import Query
 
 from . import models, schemas, auth, matching
 from .database import engine, get_db
@@ -278,6 +279,116 @@ def confirm_crew(assignments: List[schemas.CrewAssignmentCreate], db: Session = 
 def get_notifications(db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_user)):
     notifs = db.query(models.Notification).filter(models.Notification.user_id == current_user.id).order_by(models.Notification.created_at.desc()).all()
     return notifs
+
+import math
+
+def haversine(lon1, lat1, lon2, lat2):
+    lon1, lat1, lon2, lat2 = map(math.radians, [lon1, lat1, lon2, lat2])
+    dlon = lon2 - lon1 
+    dlat = lat2 - lat1 
+    a = math.sin(dlat/2)**2 + math.cos(lat1) * math.cos(lat2) * math.sin(dlon/2)**2
+    c = 2 * math.asin(math.sqrt(a)) 
+    r = 6371 # Radius of earth in kilometers
+    return c * r
+
+@app.get("/api/workers/filter")
+def filter_workers(
+    event_id: int = Query(...),
+    skills: Optional[List[str]] = Query(None),
+    min_rating: Optional[float] = Query(None),
+    min_price: Optional[int] = Query(None),
+    max_price: Optional[int] = Query(None),
+    radius_km: Optional[int] = Query(None),
+    min_reliability: Optional[int] = Query(None),
+    availability: Optional[List[str]] = Query(None),
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(auth.get_current_user)
+):
+    event = db.query(models.Event).filter(models.Event.id == event_id).first()
+    if not event:
+        raise HTTPException(status_code=404, detail="Event not found")
+        
+    query = db.query(models.Worker)
+    
+    if skills:
+        query = query.filter(models.Worker.skill_category.in_(skills))
+        
+    if min_price is not None:
+        query = query.filter(models.Worker.price_min >= min_price)
+    if max_price is not None:
+        query = query.filter(models.Worker.price_max <= max_price)
+        
+    if min_reliability is not None:
+        query = query.filter(models.Worker.reliability_score >= min_reliability)
+        
+    if min_rating is not None:
+        query = query.filter(models.Worker.rating >= min_rating)
+        
+    workers = query.all()
+    filtered_workers = []
+    
+    for worker in workers:
+        dist = haversine(event.longitude, event.latitude, worker.longitude, worker.latitude)
+        if radius_km is not None and dist > radius_km:
+            continue
+            
+        if availability:
+            avail_record = db.query(models.WorkerAvailability).filter(
+                models.WorkerAvailability.worker_id == worker.id,
+                models.WorkerAvailability.date == event.date
+            ).first()
+            
+            if not avail_record:
+                continue
+                
+            w_start = avail_record.start_time
+            w_end = avail_record.end_time
+            
+            slots = {
+                "Morning": ("08:00", "12:00"),
+                "Afternoon": ("12:00", "17:00"),
+                "Evening": ("17:00", "22:00")
+            }
+            
+            has_overlap = False
+            for slot in availability:
+                if slot in slots:
+                    s_start, s_end = slots[slot]
+                    if w_start < s_end and w_end > s_start:
+                        has_overlap = True
+                        break
+            if not has_overlap:
+                continue
+                
+        filtered_workers.append({
+            "worker": worker,
+            "distance": dist
+        })
+        
+    filtered_workers.sort(key=lambda x: (
+        -x["worker"].rating,
+        -x["worker"].reliability_score,
+        x["distance"],
+        x["worker"].price_min
+    ))
+    
+    response = []
+    for fw in filtered_workers:
+        w = fw["worker"]
+        response.append({
+            "worker_id": w.id,
+            "full_name": w.name,
+            "skill_category": w.skill_category,
+            "rating": w.rating,
+            "reliability_score": w.reliability_score,
+            "distance_km": round(fw["distance"], 1),
+            "price": f"₹{w.price_min} - ₹{w.price_max}",
+            "availability_slot": "Available", 
+            "phone": "+91 9876543210", 
+            "email": w.user.email if w.user else f"worker{w.id}@crewconnect.com"
+        })
+        
+    return response
 
 @app.get("/")
 def read_root():
