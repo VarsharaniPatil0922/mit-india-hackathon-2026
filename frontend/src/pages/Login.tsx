@@ -2,8 +2,7 @@ import React, { useState } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { UserCircle2 } from 'lucide-react';
-
-const API_BASE = 'http://localhost:8000/api';
+import { authApi } from '../services/api';
 
 export const Login = () => {
   const [searchParams] = useSearchParams();
@@ -13,6 +12,7 @@ export const Login = () => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
   const [loading, setLoading] = useState(false);
   
   const { login } = useAuth();
@@ -21,32 +21,28 @@ export const Login = () => {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
+    setSuccess('');
     setLoading(true);
     
-    const endpoint = isLogin ? '/auth/login' : '/auth/register';
-    
     try {
-      const response = await fetch(`${API_BASE}${endpoint}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password, user_type: type })
-      });
-      
-      const data = await response.json();
-      
-      if (!response.ok) {
-        throw new Error(data.detail || 'Authentication failed');
-      }
+      const data: any = isLogin 
+        ? await authApi.login(email, password, type)
+        : await authApi.register(email, password, type);
       
       // Store token and user details in context
       login(email, data.user_type, data.access_token);
       
-      // Navigate based on user type
-      if (data.user_type === 'organizer') {
-        navigate('/organizer/dashboard');
-      } else {
-        navigate('/worker/dashboard');
-      }
+      setSuccess(isLogin ? 'Login successful! Redirecting...' : 'Registration successful! Redirecting...');
+      
+      setTimeout(() => {
+        // Navigate based on user type
+        if (data.user_type === 'organizer') {
+          navigate('/organizer/dashboard');
+        } else {
+          navigate('/worker/dashboard');
+        }
+      }, 500);
+      
     } catch (err: any) {
       setError(err.message);
     } finally {
@@ -73,6 +69,12 @@ export const Login = () => {
         {error && (
           <div className="mb-4 p-3 bg-red-50 text-red-600 text-sm rounded-lg border border-red-100">
             {error}
+          </div>
+        )}
+        
+        {success && (
+          <div className="mb-4 p-3 bg-green-50 text-green-600 text-sm rounded-lg border border-green-100">
+            {success}
           </div>
         )}
 

@@ -1,227 +1,463 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Plus, Trash2, Wand2 } from 'lucide-react';
+import { Plus, Minus, ArrowRight, ArrowLeft, Briefcase, MapPin, Calendar, Clock, Sparkles, Trash2, AlertCircle, Loader2 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
-import { EventRole } from '../types';
+import { eventsApi } from '../services/api';
+
+type RoleReq = { id: string, name: string, count: number, isCustom: boolean };
+
+const SUGGESTED_ROLES = [
+  'Photographer',
+  'Videographer',
+  'Sound Engineer',
+  'Security',
+  'Decorator',
+  'Emcee / Anchor',
+  'Catering',
+  'Electrician',
+  'Cleaning Crew',
+  'Usher'
+];
 
 export const CreateEvent = () => {
   const navigate = useNavigate();
   const { user } = useAuth();
+  const [step, setStep] = useState(1);
+  
+  // Step 1: Details
   const [eventType, setEventType] = useState('Wedding');
   const [date, setDate] = useState('');
-  const [location, setLocation] = useState('Pune');
-  const [budget, setBudget] = useState(100000);
-  const [roles, setRoles] = useState<EventRole[]>([
-    { id: '1', roleName: 'Photographer', quantityNeeded: 2 }
+  const [time, setTime] = useState('');
+  const [location, setLocation] = useState('');
+  
+  // Step 2: Requirements
+  const [budget, setBudget] = useState(50000);
+  const [roles, setRoles] = useState<RoleReq[]>([
+    { id: '1', name: 'Photographer', count: 2, isCustom: false },
+    { id: '2', name: 'Security', count: 3, isCustom: false }
   ]);
-  const [nlInput, setNlInput] = useState('');
-  const [loading, setLoading] = useState(false);
+  const [roleError, setRoleError] = useState('');
 
-  const handleAddRole = () => {
-    setRoles([...roles, { id: Math.random().toString(), roleName: 'Security', quantityNeeded: 1 }]);
+  // Step 3: Preferences
+  const [proximity, setProximity] = useState(15);
+  const [priorities, setPriorities] = useState({
+    budget: 80,
+    reliability: 90,
+    rating: 85,
+  });
+
+  const handleRoleCount = (id: string, delta: number) => {
+    setRoles(roles.map(r => {
+      if (r.id === id) {
+        const newCount = Math.max(1, Math.min(50, r.count + delta));
+        return { ...r, count: newCount };
+      }
+      return r;
+    }));
   };
 
-  const handleRemoveRole = (id: string) => {
-    setRoles(roles.filter(r => r.id !== id));
+  const addRole = () => {
+    setRoles([...roles, { id: Math.random().toString(), name: '', count: 1, isCustom: false }]);
   };
 
-  const handleUpdateRole = (id: string, field: 'roleName' | 'quantityNeeded', value: string | number) => {
-    setRoles(roles.map(r => r.id === id ? { ...r, [field]: value } : r));
-  };
-
-  const handleAIParsing = () => {
-    if (nlInput.toLowerCase().includes('wedding')) {
-      setEventType('Wedding');
-      setBudget(150000);
-      setRoles([
-        { id: '1', roleName: 'Photographer', quantityNeeded: 2 },
-        { id: '2', roleName: 'Videographer', quantityNeeded: 1 },
-        { id: '3', roleName: 'Sound Engineer', quantityNeeded: 1 },
-      ]);
-      alert("AI successfully parsed your requirements!");
+  const validateRoles = () => {
+    setRoleError('');
+    if (roles.length === 0) {
+      setRoleError('At least 1 role must be added.');
+      return false;
     }
+    
+    const seen = new Set<string>();
+    
+    for (const r of roles) {
+      const trimmedName = r.name.trim();
+      if (!trimmedName) {
+        setRoleError('All roles must have a name. Please fill or delete empty roles.');
+        return false;
+      }
+      if (r.count < 1) {
+        setRoleError('Quantity must be at least 1 for all roles.');
+        return false;
+      }
+      
+      const lowerName = trimmedName.toLowerCase();
+      if (seen.has(lowerName)) {
+        setRoleError(`This role is already added: "${trimmedName}". You can increase its quantity instead.`);
+        return false;
+      }
+      seen.add(lowerName);
+    }
+    
+    return true;
   };
+
+  const handleNextStep = () => {
+    if (step === 2) {
+      if (!validateRoles()) return;
+    }
+    setStep(step + 1);
+  };
+
+  const [isLoading, setIsLoading] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!user || !user.token) return;
+    if (!user || !user.token) {
+      setRoleError("You must be logged in to create an event.");
+      return;
+    }
     
-    setLoading(true);
-    try {
-      const response = await fetch('http://localhost:8000/api/events', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${user.token}`
-        },
-        body: JSON.stringify({
-          event_type: eventType,
-          date: date,
-          time: '10:00', // Hardcoded for MVP simplicity
-          location: location,
-          latitude: 18.5204, // Default Pune lat
-          longitude: 73.8567, // Default Pune lon
-          proximity_radius: 15.0,
-          budget: budget,
-          roles: roles.map(r => ({
-            role_name: r.roleName,
-            quantity_needed: r.quantityNeeded
-          }))
-        })
-      });
+    // Default end time to 4 hours after start time
+    let endTime = time;
+    if (time) {
+      const [hours, mins] = time.split(':');
+      const endHours = (parseInt(hours) + 4) % 24;
+      endTime = `${endHours.toString().padStart(2, '0')}:${mins}`;
+    }
 
-      if (!response.ok) throw new Error("Failed to create event");
-      const data = await response.json();
-      
-      navigate(`/organizer/matching/${data.event_id}`);
-    } catch (error) {
-      console.error(error);
-      alert("Failed to save event");
+    const payload = {
+      event_type: eventType.toLowerCase(),
+      event_date: date,
+      start_time: time,
+      end_time: endTime,
+      location: location,
+      latitude: 18.5204,
+      longitude: 73.8567,
+      proximity_radius: proximity,
+      budget: budget,
+      roles: roles.map(r => ({
+        role_name: r.name.trim(),
+        quantity_needed: r.count
+      }))
+    };
+    
+    setIsLoading(true);
+    setRoleError('');
+    try {
+      const response = await eventsApi.createEvent(payload, user.token);
+      navigate(`/organizer/matching/${response.event_id}`);
+    } catch (err: any) {
+      setRoleError(err.message || 'Failed to create event');
     } finally {
-      setLoading(false);
+      setIsLoading(false);
     }
   };
 
+  const steps = ['Event Details', 'Requirements', 'Preferences', 'Crew'];
+
   return (
-    <div className="max-w-4xl mx-auto px-4 py-8">
-      <h1 className="text-3xl font-bold text-slate-900 mb-8">Create New Event</h1>
+    <div className="max-w-4xl mx-auto pb-12">
       
-      {/* AI Parsing Section */}
-      <div className="bg-gradient-to-r from-blue-50 to-indigo-50 p-6 rounded-xl border border-blue-100 mb-8">
-        <div className="flex items-center space-x-2 mb-4">
-          <Wand2 className="w-5 h-5 text-blue-600" />
-          <h2 className="text-lg font-semibold text-blue-900">AI Requirement Parser</h2>
-        </div>
-        <p className="text-sm text-blue-800 mb-4">Describe your event naturally, and we'll fill out the details for you.</p>
-        <div className="flex space-x-4">
-          <input
-            type="text"
-            value={nlInput}
-            onChange={(e) => setNlInput(e.target.value)}
-            placeholder="e.g. I need a wedding crew for 500 guests in Pune tomorrow, budget 1.5 lakh..."
-            className="flex-1 px-4 py-2 rounded-lg border border-blue-200 focus:outline-none focus:ring-2 focus:ring-blue-500"
-          />
-          <button 
-            type="button"
-            onClick={handleAIParsing}
-            className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-lg font-medium transition-colors"
-          >
-            Parse
-          </button>
+      {/* Progress Indicator */}
+      <div className="mb-8">
+        <div className="flex items-center justify-between relative">
+          <div className="absolute left-0 right-0 top-1/2 h-0.5 bg-slate-200 -z-10"></div>
+          {steps.map((s, i) => {
+            const stepNum = i + 1;
+            const isActive = step === stepNum;
+            const isPast = step > stepNum;
+            return (
+              <div key={s} className="flex flex-col items-center">
+                <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-sm border-2 transition-colors ${
+                  isActive ? 'bg-indigo-600 border-indigo-600 text-white' : 
+                  isPast ? 'bg-indigo-100 border-indigo-600 text-indigo-600' : 
+                  'bg-white border-slate-300 text-slate-400'
+                }`}>
+                  {stepNum}
+                </div>
+                <span className={`text-xs mt-2 font-medium ${isActive ? 'text-indigo-600' : 'text-slate-500'}`}>{s}</span>
+              </div>
+            );
+          })}
         </div>
       </div>
 
-      <form onSubmit={handleSubmit} className="bg-white p-8 rounded-xl shadow-sm border border-slate-200">
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
-          <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">Event Type</label>
-            <select
-              value={eventType}
-              onChange={(e) => setEventType(e.target.value)}
-              className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-            >
-              <option>Wedding</option>
-              <option>Corporate</option>
-              <option>Concert</option>
-              <option>Birthday</option>
-              <option>Other</option>
-            </select>
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">Date</label>
-            <input
-              type="date"
-              required
-              value={date}
-              onChange={(e) => setDate(e.target.value)}
-              className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">Location / City</label>
-            <input
-              type="text"
-              required
-              value={location}
-              onChange={(e) => setLocation(e.target.value)}
-              className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">Total Budget (₹)</label>
-            <input
-              type="number"
-              required
-              min="0"
-              value={budget}
-              onChange={(e) => setBudget(Number(e.target.value))}
-              className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-            />
-          </div>
-        </div>
-
-        <div className="mb-8">
-          <div className="flex justify-between items-center mb-4">
-            <h3 className="text-lg font-semibold text-slate-800">Required Roles</h3>
-            <button
-              type="button"
-              onClick={handleAddRole}
-              className="flex items-center space-x-1 text-blue-600 hover:text-blue-800 font-medium text-sm"
-            >
-              <Plus className="w-4 h-4" />
-              <span>Add Role</span>
-            </button>
-          </div>
-          
-          <div className="space-y-4">
-            {roles.map((role) => (
-              <div key={role.id} className="flex items-center space-x-4 bg-slate-50 p-4 rounded-lg border border-slate-200">
-                <div className="flex-1">
+      <div className="bg-white rounded-3xl shadow-sm border border-slate-200 p-6 md:p-10">
+        
+        {step === 1 && (
+          <div className="animate-in fade-in slide-in-from-right-4 duration-300">
+            <h2 className="text-2xl font-bold text-slate-900 mb-6">Event Details</h2>
+            <div className="space-y-6">
+              <div>
+                <label className="block text-sm font-semibold text-slate-700 mb-2">Event Type</label>
+                <div className="relative">
+                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                    <Briefcase className="h-5 w-5 text-slate-400" />
+                  </div>
                   <select
-                    value={role.roleName}
-                    onChange={(e) => handleUpdateRole(role.id, 'roleName', e.target.value)}
-                    className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    value={eventType}
+                    onChange={(e) => setEventType(e.target.value)}
+                    className="w-full pl-10 pr-3 py-3 border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 appearance-none bg-white font-medium"
                   >
-                    <option>Photographer</option>
-                    <option>Videographer</option>
-                    <option>Sound Engineer</option>
-                    <option>Security</option>
-                    <option>Decorator</option>
-                    <option>Emcee</option>
-                    <option>Catering</option>
+                    <option>Wedding</option>
+                    <option>Corporate</option>
+                    <option>Concert</option>
+                    <option>Birthday</option>
+                    <option>Other</option>
                   </select>
                 </div>
-                <div className="w-32">
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div>
+                  <label className="block text-sm font-semibold text-slate-700 mb-2">Date</label>
+                  <div className="relative">
+                    <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                      <Calendar className="h-5 w-5 text-slate-400" />
+                    </div>
+                    <input
+                      type="date"
+                      value={date}
+                      onChange={(e) => setDate(e.target.value)}
+                      className="w-full pl-10 pr-3 py-3 border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 font-medium"
+                    />
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-sm font-semibold text-slate-700 mb-2">Time</label>
+                  <div className="relative">
+                    <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                      <Clock className="h-5 w-5 text-slate-400" />
+                    </div>
+                    <input
+                      type="time"
+                      value={time}
+                      onChange={(e) => setTime(e.target.value)}
+                      className="w-full pl-10 pr-3 py-3 border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 font-medium"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-semibold text-slate-700 mb-2">Location</label>
+                <div className="relative">
+                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                    <MapPin className="h-5 w-5 text-slate-400" />
+                  </div>
                   <input
-                    type="number"
-                    min="1"
-                    value={role.quantityNeeded}
-                    onChange={(e) => handleUpdateRole(role.id, 'quantityNeeded', Number(e.target.value))}
-                    className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    type="text"
+                    value={location}
+                    onChange={(e) => setLocation(e.target.value)}
+                    placeholder="e.g. Pune, MH"
+                    className="w-full pl-10 pr-3 py-3 border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 font-medium"
                   />
                 </div>
-                <button
-                  type="button"
-                  onClick={() => handleRemoveRole(role.id)}
-                  className="p-2 text-red-500 hover:text-red-700 hover:bg-red-50 rounded-lg transition-colors"
-                >
-                  <Trash2 className="w-5 h-5" />
-                </button>
               </div>
-            ))}
+            </div>
           </div>
-        </div>
+        )}
 
-        <div className="flex justify-end pt-4 border-t border-slate-200">
+        {step === 2 && (
+          <div className="animate-in fade-in slide-in-from-right-4 duration-300">
+            <h2 className="text-2xl font-bold text-slate-900 mb-6">Event Requirements</h2>
+            
+            <div className="mb-8">
+              <label className="block text-sm font-semibold text-slate-700 mb-2">Total Budget (₹)</label>
+              <div className="relative">
+                <span className="absolute inset-y-0 left-0 pl-4 flex items-center text-slate-500 font-medium">₹</span>
+                <input
+                  type="number"
+                  value={budget}
+                  onChange={(e) => setBudget(Number(e.target.value))}
+                  className="w-full pl-8 pr-4 py-3 text-lg font-medium border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                />
+              </div>
+            </div>
+
+            <div className="mb-2">
+              <div className="flex justify-between items-center mb-4 border-b border-slate-100 pb-2">
+                <label className="block text-lg font-bold text-slate-800">Required Roles</label>
+                <div className="text-sm font-bold text-slate-500 bg-slate-100 px-3 py-1 rounded-full">
+                  Total Workers: {roles.reduce((acc, r) => acc + r.count, 0)}
+                </div>
+              </div>
+              
+              <div className="space-y-4">
+                {roles.map((role) => (
+                  <div key={role.id} className="p-4 rounded-xl border border-slate-200 bg-white hover:border-indigo-200 transition-colors shadow-sm">
+                    <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center justify-between">
+                      
+                      {/* Role Input */}
+                      <div className="flex-1 w-full flex flex-col gap-2">
+                        <select 
+                          value={role.isCustom ? 'Custom Role' : (SUGGESTED_ROLES.includes(role.name) ? role.name : (role.name ? 'Custom Role' : ''))}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            if (val === 'Custom Role') {
+                              setRoles(roles.map(r => r.id === role.id ? { ...r, name: '', isCustom: true } : r));
+                            } else {
+                              setRoles(roles.map(r => r.id === role.id ? { ...r, name: val, isCustom: false } : r));
+                            }
+                          }}
+                          className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 font-semibold text-slate-800 bg-slate-50 cursor-pointer"
+                        >
+                          <option value="" disabled>Select a role...</option>
+                          {SUGGESTED_ROLES.map(sr => (
+                            <option key={sr} value={sr}>{sr}</option>
+                          ))}
+                          <option value="Custom Role">✨ Custom Role...</option>
+                        </select>
+                        
+                        {role.isCustom && (
+                          <input 
+                            type="text" 
+                            placeholder="Enter custom role name (e.g. Stage Manager)"
+                            value={role.name}
+                            onChange={(e) => setRoles(roles.map(r => r.id === role.id ? { ...r, name: e.target.value } : r))}
+                            className="w-full px-3 py-2 border-2 border-indigo-200 rounded-lg focus:outline-none focus:border-indigo-500 font-medium text-slate-800 bg-white"
+                            autoFocus
+                          />
+                        )}
+                      </div>
+                      
+                      {/* Controls */}
+                      <div className="flex items-center gap-4 w-full sm:w-auto justify-between sm:justify-end border-t sm:border-t-0 pt-3 sm:pt-0 border-slate-100">
+                        <div className="flex items-center gap-3">
+                           <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Quantity</span>
+                           <div className="flex items-center gap-1 bg-slate-50 border border-slate-200 rounded-lg p-1">
+                             <button 
+                               type="button"
+                               onClick={() => handleRoleCount(role.id, -1)}
+                               className="p-1.5 rounded-md hover:bg-white hover:shadow-sm text-slate-600 transition-all disabled:opacity-50"
+                               disabled={role.count <= 1}
+                             >
+                               <Minus className="w-4 h-4" />
+                             </button>
+                             <span className="w-8 text-center font-bold text-slate-900">{role.count}</span>
+                             <button 
+                               type="button"
+                               onClick={() => handleRoleCount(role.id, 1)}
+                               className="p-1.5 rounded-md hover:bg-white hover:shadow-sm text-slate-600 transition-all disabled:opacity-50"
+                               disabled={role.count >= 50}
+                             >
+                               <Plus className="w-4 h-4" />
+                             </button>
+                           </div>
+                        </div>
+
+                        <button 
+                          type="button"
+                          onClick={() => setRoles(roles.filter(r => r.id !== role.id))}
+                          className="p-2 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                          title="Delete Role"
+                        >
+                          <Trash2 className="w-5 h-5" />
+                        </button>
+                      </div>
+                      
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {roleError && (
+                <div className="mt-4 p-3 bg-red-50 border border-red-100 text-red-600 text-sm font-medium rounded-lg flex items-start gap-2">
+                  <AlertCircle className="w-5 h-5 shrink-0" />
+                  <span>{roleError}</span>
+                </div>
+              )}
+
+              <button 
+                type="button"
+                onClick={addRole}
+                className="mt-6 w-full flex items-center justify-center gap-2 text-indigo-600 font-bold hover:text-indigo-700 px-4 py-3 rounded-xl border-2 border-dashed border-indigo-200 hover:border-indigo-400 hover:bg-indigo-50 transition-all"
+              >
+                <Plus className="w-5 h-5" /> Add Another Role
+              </button>
+            </div>
+          </div>
+        )}
+
+        {step === 3 && (
+          <div className="animate-in fade-in slide-in-from-right-4 duration-300">
+            <h2 className="text-2xl font-bold text-slate-900 mb-6">Matching Preferences</h2>
+            <p className="text-slate-500 mb-8">Fine-tune how the AI optimizes your crew selection.</p>
+            
+            <div className="space-y-8">
+              <div>
+                <div className="flex justify-between mb-2">
+                  <label className="text-sm font-semibold text-slate-700">Proximity Radius</label>
+                  <span className="text-indigo-600 font-bold bg-indigo-50 px-2 py-0.5 rounded">{proximity} km</span>
+                </div>
+                <input 
+                  type="range" min="5" max="50" step="5"
+                  value={proximity} onChange={(e) => setProximity(Number(e.target.value))}
+                  className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-indigo-600"
+                />
+              </div>
+
+              <div>
+                <div className="flex justify-between mb-2">
+                  <label className="text-sm font-semibold text-slate-700">Budget Priority</label>
+                  <span className="text-indigo-600 font-bold bg-indigo-50 px-2 py-0.5 rounded">{priorities.budget}%</span>
+                </div>
+                <input 
+                  type="range" min="0" max="100" step="5"
+                  value={priorities.budget} onChange={(e) => setPriorities({...priorities, budget: Number(e.target.value)})}
+                  className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-indigo-600"
+                />
+              </div>
+
+              <div>
+                <div className="flex justify-between mb-2">
+                  <label className="text-sm font-semibold text-slate-700">Reliability Priority</label>
+                  <span className="text-indigo-600 font-bold bg-indigo-50 px-2 py-0.5 rounded">{priorities.reliability}%</span>
+                </div>
+                <input 
+                  type="range" min="0" max="100" step="5"
+                  value={priorities.reliability} onChange={(e) => setPriorities({...priorities, reliability: Number(e.target.value)})}
+                  className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-indigo-600"
+                />
+              </div>
+
+              <div>
+                <div className="flex justify-between mb-2">
+                  <label className="text-sm font-semibold text-slate-700">Rating Priority</label>
+                  <span className="text-indigo-600 font-bold bg-indigo-50 px-2 py-0.5 rounded">{priorities.rating}%</span>
+                </div>
+                <input 
+                  type="range" min="0" max="100" step="5"
+                  value={priorities.rating} onChange={(e) => setPriorities({...priorities, rating: Number(e.target.value)})}
+                  className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-indigo-600"
+                />
+              </div>
+            </div>
+          </div>
+        )}
+
+        <div className="mt-10 pt-6 border-t border-slate-100 flex justify-between">
           <button
-            type="submit"
-            disabled={loading}
-            className="bg-teal-600 hover:bg-teal-700 text-white px-8 py-3 rounded-lg font-semibold text-lg transition-colors disabled:opacity-70"
+            type="button"
+            onClick={() => setStep(step - 1)}
+            className={`flex items-center gap-2 px-6 py-3 font-bold rounded-xl transition-colors ${
+              step === 1 ? 'invisible' : 'text-slate-600 hover:bg-slate-100'
+            }`}
           >
-            {loading ? 'Processing...' : 'Find My Crew'}
+            <ArrowLeft className="w-5 h-5" /> Back
           </button>
+          
+          {step < 3 ? (
+            <button
+              type="button"
+              onClick={handleNextStep}
+              className="flex items-center gap-2 px-8 py-3 bg-slate-900 hover:bg-slate-800 text-white font-bold rounded-xl transition-all shadow-sm active:scale-95"
+            >
+              Continue <ArrowRight className="w-5 h-5" />
+            </button>
+          ) : (
+            <button
+              onClick={handleSubmit}
+              disabled={isLoading}
+              className="flex items-center gap-2 px-8 py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl transition-all shadow-md shadow-indigo-200 active:scale-95 disabled:opacity-70"
+            >
+              {isLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : <Sparkles className="w-5 h-5" />} 
+              {isLoading ? 'Creating Event...' : 'Find Optimal Crew'} 
+              {!isLoading && <ArrowRight className="w-5 h-5 ml-1" />}
+            </button>
+          )}
         </div>
-      </form>
+      </div>
     </div>
   );
 };

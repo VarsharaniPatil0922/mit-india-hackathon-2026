@@ -6,6 +6,7 @@ export interface User {
   email: string;
   userType: UserType;
   token?: string;
+  name?: string;
 }
 
 interface AuthContextType {

@@ -64,31 +64,132 @@ def create_event(event: schemas.EventCreate, db: Session = Depends(get_db), curr
         
     org = db.query(models.Organizer).filter(models.Organizer.user_id == current_user.id).first()
     
-    new_event = models.Event(
-        organizer_id=org.id,
-        event_type=event.event_type,
-        date=event.date,
-        time=event.time,
-        location=event.location,
-        latitude=event.latitude,
-        longitude=event.longitude,
-        proximity_radius=event.proximity_radius,
-        budget=event.budget
-    )
-    db.add(new_event)
-    db.commit()
-    db.refresh(new_event)
-    
-    for role in event.roles:
-        new_role = models.EventRole(
-            event_id=new_event.id,
-            role_name=role.role_name,
-            quantity_needed=role.quantity_needed
+    try:
+        new_event = models.Event(
+            organizer_id=org.id,
+            event_type=event.event_type,
+            date=event.event_date,
+            start_time=event.start_time,
+            end_time=event.end_time,
+            location=event.location,
+            latitude=event.latitude,
+            longitude=event.longitude,
+            proximity_radius=event.proximity_radius,
+            budget=event.budget,
+            status="MATCHING"
         )
-        db.add(new_role)
-    db.commit()
+        db.add(new_event)
+        db.flush() # Flush to get new_event.id without committing the transaction
+        
+        for role in event.roles:
+            new_role = models.EventRole(
+                event_id=new_event.id,
+                role_name=role.role_name,
+                quantity_needed=role.quantity_needed
+            )
+            db.add(new_role)
+            
+        # Commit both the event and the roles atomically
+        db.commit()
+        db.refresh(new_event)
+        
+        # Prepare response
+        roles_response = []
+        total_workers = 0
+        for r in new_event.roles:
+            roles_response.append({
+                "id": r.id,
+                "role_name": r.role_name,
+                "quantity_needed": r.quantity_needed
+            })
+            total_workers += r.quantity_needed
+            
+        return {
+            "event_id": new_event.id,
+            "status": new_event.status,
+            "event_type": new_event.event_type,
+            "event_date": new_event.date,
+            "location": new_event.location,
+            "budget": new_event.budget,
+            "roles": roles_response,
+            "total_required_workers": total_workers
+        }
+    except Exception as e:
+        print("Exception in create_event:", e)
+        db.rollback()
+        raise HTTPException(status_code=500, detail="Failed to create event. Transaction rolled back.")
+
+@app.get("/api/events")
+def get_organizer_events(db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_user)):
+    if current_user.user_type != 'organizer':
+        raise HTTPException(status_code=403, detail="Only organizers can access events")
+        
+    org = db.query(models.Organizer).filter(models.Organizer.user_id == current_user.id).first()
+    events = db.query(models.Event).filter(models.Event.organizer_id == org.id).all()
     
-    return {"message": "Event created", "event_id": new_event.id}
+    results = []
+    for event in events:
+        roles_response = []
+        total_workers = 0
+        for r in event.roles:
+            roles_response.append({
+                "id": r.id,
+                "role_name": r.role_name,
+                "quantity_needed": r.quantity_needed
+            })
+            total_workers += r.quantity_needed
+            
+        results.append({
+            "event_id": event.id,
+            "status": event.status,
+            "event_type": event.event_type,
+            "event_date": event.date,
+            "start_time": event.start_time,
+            "end_time": event.end_time,
+            "location": event.location,
+            "budget": event.budget,
+            "roles": roles_response,
+            "total_required_workers": total_workers
+        })
+        
+    return results
+
+@app.get("/api/events/{event_id}")
+def get_event(event_id: int, db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_user)):
+    if current_user.user_type != 'organizer':
+        raise HTTPException(status_code=403, detail="Only organizers can access events")
+        
+    org = db.query(models.Organizer).filter(models.Organizer.user_id == current_user.id).first()
+    event = db.query(models.Event).filter(models.Event.id == event_id).first()
+    
+    if not event:
+        raise HTTPException(status_code=404, detail="Event not found")
+        
+    if event.organizer_id != org.id:
+        raise HTTPException(status_code=403, detail="Not authorized to access this event")
+        
+    roles_response = []
+    total_workers = 0
+    for r in event.roles:
+        roles_response.append({
+            "id": r.id,
+            "role_name": r.role_name,
+            "quantity_needed": r.quantity_needed
+        })
+        total_workers += r.quantity_needed
+        
+    return {
+        "event_id": event.id,
+        "status": event.status,
+        "event_type": event.event_type,
+        "event_date": event.date,
+        "start_time": event.start_time,
+        "end_time": event.end_time,
+        "location": event.location,
+        "budget": event.budget,
+        "roles": roles_response,
+        "total_required_workers": total_workers
+    }
 
 @app.get("/api/crew/optimize/{event_id}")
 def optimize_crew(event_id: int, db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_user)):
@@ -99,13 +200,16 @@ def optimize_crew(event_id: int, db: Session = Depends(get_db), current_user: mo
     roles = db.query(models.EventRole).filter(models.EventRole.event_id == event_id).all()
     all_workers = db.query(models.Worker).all()
     
-    # Run optimization engine
-    results = matching.optimize_crew_for_event(event, roles, all_workers)
+    # Run optimization engine (Phase 1: Eligibility filtering)
+    results = matching.get_eligible_workers(event, roles, all_workers, db)
     
     # Format for JSON response
     formatted_results = []
     for role in roles:
-        role_candidates = results.get(role.id, [])
+        role_data = results.get(role.id, {})
+        role_candidates = role_data.get("eligible_candidates", [])
+        excluded_summary = role_data.get("excluded_summary", {})
+        
         formatted_results.append({
             "role": {
                 "id": str(role.id),
@@ -118,13 +222,15 @@ def optimize_crew(event_id: int, db: Session = Depends(get_db), current_user: mo
                     "name": c["worker"].name,
                     "rating": c["worker"].rating,
                     "reliabilityScore": c["worker"].reliability_score,
-                    "distanceKm": c["distanceKm"],
+                    "distanceKm": round(c["distanceKm"], 1),
                     "priceMin": c["worker"].price_min,
                     "priceMax": c["worker"].price_max,
                     "score": c["score"],
                     "matchReasons": c["matchReasons"]
                 } for c in role_candidates
-            ]
+            ],
+            "excluded_summary": excluded_summary,
+            "eligible_count": len(role_candidates)
         })
         
     return formatted_results

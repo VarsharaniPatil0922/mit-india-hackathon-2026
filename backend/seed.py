@@ -1,4 +1,5 @@
 import random
+import datetime
 from app.database import SessionLocal, engine
 from app import models
 from app.auth import get_password_hash
@@ -15,6 +16,7 @@ def seed_db():
         return
 
     print("Seeding database...")
+    random.seed(42)
 
     # Create one organizer
     org_user = models.User(
@@ -79,6 +81,19 @@ def seed_db():
             reliability_score=reliability
         )
         db.add(worker)
+        
+        # Deterministic Availability for next 14 days
+        today = datetime.date.today()
+        for d in range(14):
+            if random.random() > 0.3: # 70% chance to be available
+                avail_date = today + datetime.timedelta(days=d)
+                avail = models.WorkerAvailability(
+                    worker=worker,
+                    date=avail_date.strftime("%Y-%m-%d"),
+                    start_time="08:00",
+                    end_time="22:00"
+                )
+                db.add(avail)
 
     db.commit()
     print("Seeding complete! 1 organizer and 40 workers added.")
