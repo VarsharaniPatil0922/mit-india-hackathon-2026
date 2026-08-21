@@ -406,30 +406,88 @@ def replace_worker(req: ReplaceWorkerRequest, db: Session = Depends(get_db), cur
 
 @app.post("/api/crew/confirm")
 def confirm_crew(assignments: List[schemas.CrewAssignmentCreate], db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_user)):
-    # Create crew assignments and dispatch notifications
+    # Update recommended assignments to pending
     for assign in assignments:
-        new_assign = models.CrewAssignment(
-            event_id=assign.event_id,
-            role_id=assign.role_id,
-            worker_id=assign.worker_id,
-            price_agreed=assign.price_agreed
-        )
-        db.add(new_assign)
+        existing_assign = db.query(models.CrewAssignment).filter(
+            models.CrewAssignment.event_id == assign.event_id,
+            models.CrewAssignment.worker_id == assign.worker_id,
+            models.CrewAssignment.status == "recommended"
+        ).first()
         
-        # Create notification for worker
-        worker = db.query(models.Worker).filter(models.Worker.id == assign.worker_id).first()
-        event = db.query(models.Event).filter(models.Event.id == assign.event_id).first()
-        if worker and event:
-            msg = f"You have been requested for {event.event_type} at {event.location} on {event.date}."
-            notif = models.Notification(
-                user_id=worker.user_id,
-                event_id=event.id,
-                message=msg
-            )
-            db.add(notif)
+        if existing_assign:
+            existing_assign.status = "pending"
+            existing_assign.price_agreed = assign.price_agreed
+            
+            # Create notification for worker
+            worker = db.query(models.Worker).filter(models.Worker.id == assign.worker_id).first()
+            event = db.query(models.Event).filter(models.Event.id == assign.event_id).first()
+            if worker and event:
+                msg = f"You have been requested for {event.event_type} at {event.location} on {event.date}."
+                notif = models.Notification(
+                    user_id=worker.user_id,
+                    event_id=event.id,
+                    message=msg
+                )
+                db.add(notif)
             
     db.commit()
     return {"message": "Crew confirmed and notified"}
+
+@app.get("/api/worker/dashboard")
+def get_worker_dashboard(db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_user)):
+    worker = db.query(models.Worker).filter(models.Worker.user_id == current_user.id).first()
+    if not worker:
+        return {"offers": []}
+        
+    assignments = db.query(models.CrewAssignment).filter(
+        models.CrewAssignment.worker_id == worker.id,
+        models.CrewAssignment.status.in_(["pending", "confirmed", "declined"])
+    ).all()
+    
+    offers = []
+    for a in assignments:
+        offers.append({
+            "id": str(a.id),
+            "assignment_id": a.id,
+            "eventName": a.event.title,
+            "role": a.role.role_name,
+            "date": f"{a.event.event_date} • {a.event.start_time}",
+            "location": a.event.location,
+            "price": a.price_agreed,
+            "status": a.status,
+            "expiresIn": "24 hours",
+            "matchScore": 95
+        })
+        
+    return {"offers": offers}
+
+class WorkerResponse(BaseModel):
+    assignment_id: int
+    action: str # "accepted" or "declined"
+
+@app.post("/api/worker/respond")
+def worker_respond(req: WorkerResponse, db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_user)):
+    worker = db.query(models.Worker).filter(models.Worker.user_id == current_user.id).first()
+    if not worker:
+        raise HTTPException(status_code=404, detail="Worker profile not found")
+        
+    assignment = db.query(models.CrewAssignment).filter(
+        models.CrewAssignment.id == req.assignment_id,
+        models.CrewAssignment.worker_id == worker.id
+    ).first()
+    
+    if not assignment:
+        raise HTTPException(status_code=404, detail="Assignment not found")
+        
+    if req.action == "accepted":
+        assignment.status = "confirmed"
+    elif req.action == "declined":
+        assignment.status = "declined"
+    else:
+        raise HTTPException(status_code=400, detail="Invalid action")
+        
+    db.commit()
+    return {"status": "success", "new_status": assignment.status}
 
 @app.get("/api/worker/notifications", response_model=List[schemas.NotificationResponse])
 def get_notifications(db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_user)):

@@ -1,27 +1,68 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Bell, MapPin, IndianRupee, Star, Calendar, CheckCircle, Clock, ChevronRight } from 'lucide-react';
 
 export const WorkerDashboard = () => {
-  const [offers, setOffers] = useState([
-    {
-      id: 'offer-1',
-      eventName: 'MIT India Hackathon 2026 Finals',
-      role: 'Photographer',
-      date: 'Aug 25, 2026 • 09:00 AM',
-      location: 'MIT Pune Campus, Kothrud',
-      price: 8000,
-      status: 'pending',
-      expiresIn: '2 hours',
-      matchScore: 96
-    }
-  ]);
+  const [offers, setOffers] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [toastMsg, setToastMsg] = useState("");
 
-  const handleAction = (id: string, action: 'accepted' | 'declined') => {
-    setOffers(offers.map(o => o.id === id ? { ...o, status: action } : o));
+  const fetchOffers = async () => {
+    try {
+      const res = await fetch("http://localhost:8000/api/worker/dashboard", {
+        headers: {
+          Authorization: `Bearer ${localStorage.getItem("token")}`,
+        },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setOffers(data.offers);
+      }
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchOffers();
+  }, []);
+
+  const showToast = (msg: string) => {
+    setToastMsg(msg);
+    setTimeout(() => setToastMsg(""), 3000);
+  };
+
+  const handleAction = async (assignmentId: number, action: 'accepted' | 'declined') => {
+    try {
+      const res = await fetch("http://localhost:8000/api/worker/respond", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${localStorage.getItem("token")}`,
+        },
+        body: JSON.stringify({ assignment_id: assignmentId, action }),
+      });
+      
+      if (res.ok) {
+        showToast(`Worker ${action} the event.`);
+        fetchOffers(); // Refresh state immediately
+      }
+    } catch (err) {
+      console.error(err);
+    }
   };
 
   return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 relative">
+      {/* Toast Notification */}
+      {toastMsg && (
+        <div className="fixed bottom-6 right-6 bg-slate-900 text-white px-6 py-3 rounded-lg shadow-2xl z-50 animate-bounce flex items-center">
+          <CheckCircle className="w-5 h-5 text-emerald-400 mr-3" />
+          <span className="font-semibold">{toastMsg}</span>
+        </div>
+      )}
+
       {/* Header */}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-10 gap-4">
         <div>
@@ -49,7 +90,12 @@ export const WorkerDashboard = () => {
           </h2>
           
           <div className="space-y-6">
-            {offers.map(offer => (
+            {loading ? (
+              <div className="text-slate-500 font-semibold p-6 text-center border-2 border-dashed rounded-xl">Loading your offers...</div>
+            ) : offers.length === 0 ? (
+              <div className="text-slate-500 font-semibold p-6 text-center border-2 border-dashed rounded-xl">No active offers at the moment.</div>
+            ) : (
+              offers.map(offer => (
               <div key={offer.id} className={`bg-white rounded-2xl shadow-sm border overflow-hidden transition-all duration-300 ${
                 offer.status === 'pending' ? 'border-indigo-200 shadow-indigo-100' : 'border-slate-200'
               }`}>
@@ -110,13 +156,13 @@ export const WorkerDashboard = () => {
                   {offer.status === 'pending' && (
                     <div className="flex gap-4 pt-4 border-t border-slate-100">
                       <button 
-                        onClick={() => handleAction(offer.id, 'accepted')}
+                        onClick={() => handleAction(offer.assignment_id, 'accepted')}
                         className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white py-3 rounded-xl font-bold shadow-md shadow-indigo-200 transition-all active:scale-95"
                       >
                         Accept Offer
                       </button>
                       <button 
-                        onClick={() => handleAction(offer.id, 'declined')}
+                        onClick={() => handleAction(offer.assignment_id, 'declined')}
                         className="flex-1 bg-white border-2 border-slate-200 text-slate-700 hover:bg-slate-50 hover:border-slate-300 py-3 rounded-xl font-bold transition-all"
                       >
                         Decline
@@ -125,7 +171,7 @@ export const WorkerDashboard = () => {
                   )}
                 </div>
               </div>
-            ))}
+            )))}
           </div>
         </div>
 

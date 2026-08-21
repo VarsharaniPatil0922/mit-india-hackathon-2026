@@ -14,6 +14,8 @@ export const MatchingResults = () => {
   const [loading, setLoading] = useState(true);
   const [simulatingNoShow, setSimulatingNoShow] = useState(false);
   const [cascadeSteps, setCascadeSteps] = useState<string[]>([]);
+  const [cascadeResult, setCascadeResult] = useState<any>(null);
+  const [toastMsg, setToastMsg] = useState("");
 
   useEffect(() => {
     const fetchOptimization = async () => {
@@ -131,6 +133,9 @@ export const MatchingResults = () => {
         
         setTimeout(() => {
             setCascadeSteps(prev => [...prev, "New crew confirmed"]);
+            setCascadeResult(data);
+            showToast("Cascade Re-optimization Complete");
+            setSimulatingNoShow(false);
             
             // Apply new state
             if (data.new_crew) {
@@ -143,12 +148,8 @@ export const MatchingResults = () => {
               });
               setSelectedWorkers(preSelected);
             }
-            if (data.backup_pools) {
-              setBackupPools(data.backup_pools);
-            }
             
             // Refetch original to get updated candidate pools (or just keep the old candidates for UI display)
-            // Ideally we'd update the UI completely, but for demo showing the changes is most important.
             // Let's refetch to get clean state
             fetch(`http://localhost:8000/api/crew/optimize/${eventId}`, {
                 headers: { 'Authorization': `Bearer ${user.token}` }
@@ -156,7 +157,6 @@ export const MatchingResults = () => {
                 if (newData.candidate_pools) {
                     setResults(newData.candidate_pools);
                 }
-                setTimeout(() => setSimulatingNoShow(false), 2000);
             });
             
         }, 3000);
@@ -169,6 +169,11 @@ export const MatchingResults = () => {
       alert("Simulation failed");
       setSimulatingNoShow(false);
     }
+  };
+
+  const showToast = (msg: string) => {
+    setToastMsg(msg);
+    setTimeout(() => setToastMsg(""), 4000);
   };
 
   if (loading) {
@@ -196,7 +201,71 @@ export const MatchingResults = () => {
   }
 
   return (
-    <div className="max-w-7xl mx-auto px-4 py-8">
+    <div className="max-w-7xl mx-auto px-4 py-8 relative">
+      
+      {/* Toast Notification */}
+      {toastMsg && (
+        <div className="fixed bottom-6 right-6 bg-slate-900 text-white px-6 py-3 rounded-lg shadow-2xl z-50 animate-bounce flex items-center">
+          <CheckCircle className="w-5 h-5 text-emerald-400 mr-3" />
+          <span className="font-semibold">{toastMsg}</span>
+        </div>
+      )}
+
+      {/* Cascade Result Modal */}
+      {cascadeResult && (
+        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-40 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl overflow-hidden">
+            <div className="bg-indigo-600 px-6 py-4 flex justify-between items-center text-white">
+              <h2 className="text-xl font-bold">Cascade Re-optimization Complete</h2>
+              <button onClick={() => setCascadeResult(null)} className="text-indigo-200 hover:text-white font-bold">✕</button>
+            </div>
+            
+            <div className="p-6">
+              <div className="bg-red-50 border border-red-100 rounded-lg p-4 mb-6">
+                <h3 className="text-sm font-bold text-red-700 uppercase mb-2">Unavailable Worker</h3>
+                <p className="text-slate-800 font-medium">
+                  {cascadeResult.removed_worker?.name} — {cascadeResult.removed_worker?.roleName}
+                </p>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4 mb-6">
+                <div className="bg-slate-50 p-4 rounded-lg border border-slate-200">
+                  <h3 className="text-xs font-bold text-slate-500 uppercase mb-1">Previous Cost</h3>
+                  <p className="text-xl font-bold text-slate-800">₹{cascadeResult.previous_cost?.toLocaleString()}</p>
+                </div>
+                <div className="bg-emerald-50 p-4 rounded-lg border border-emerald-200">
+                  <h3 className="text-xs font-bold text-emerald-700 uppercase mb-1">New Cost</h3>
+                  <p className="text-xl font-bold text-emerald-800">₹{cascadeResult.new_cost?.toLocaleString()}</p>
+                </div>
+                <div className="col-span-2 bg-blue-50 p-4 rounded-lg border border-blue-200">
+                  <h3 className="text-xs font-bold text-blue-700 uppercase mb-1">Event Budget</h3>
+                  <p className="text-xl font-bold text-blue-800">₹{cascadeResult.budget?.toLocaleString()}</p>
+                </div>
+              </div>
+
+              <h3 className="text-sm font-bold text-slate-700 uppercase mb-3 border-b pb-2">New Recommended Crew</h3>
+              <div className="space-y-2 max-h-48 overflow-y-auto">
+                {cascadeResult.new_crew?.map((c: any, i: number) => (
+                   <div key={i} className="flex justify-between items-center text-sm p-2 hover:bg-slate-50 rounded">
+                     <span className="font-medium text-slate-800">{c.worker_name}</span>
+                     <span className="text-slate-500">{c.role_name}</span>
+                   </div>
+                ))}
+              </div>
+
+              <div className="mt-6 flex justify-end">
+                <button 
+                  onClick={() => setCascadeResult(null)}
+                  className="bg-indigo-600 text-white px-6 py-2 rounded-lg font-bold hover:bg-indigo-700"
+                >
+                  View New Crew
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="mb-8 border-b border-slate-200 pb-6">
         <h1 className="text-3xl font-bold text-slate-900 mb-2">Crew Optimization Results</h1>
         <p className="text-slate-600">Our AI has found the best matching candidates based on your budget, proximity, and reliability requirements.</p>
@@ -205,14 +274,19 @@ export const MatchingResults = () => {
       <div className="space-y-12">
         {results.map(({ role, candidates }) => {
           const selectedForRole = selectedWorkers[role.id] || [];
-          const isFulfilled = selectedForRole.length === role.quantityNeeded;
+          
+          // Separate primary and backups based on selection
+          const primaryCrew = candidates.filter((c: any) => selectedForRole.includes(String(c.id)));
+          const backupCrew = candidates.filter((c: any) => !selectedForRole.includes(String(c.id)));
+
+          const isFulfilled = primaryCrew.length === role.quantityNeeded;
 
           return (
             <div key={role.id} className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
               <div className="bg-slate-50 px-6 py-4 border-b border-slate-200 flex justify-between items-center">
                 <div>
                   <h2 className="text-xl font-bold text-slate-800">{role.roleName}</h2>
-                  <p className="text-sm text-slate-500">Need {role.quantityNeeded} • {selectedForRole.length} Selected</p>
+                  <p className="text-sm text-slate-500">Need {role.quantityNeeded} • {primaryCrew.length} Selected</p>
                 </div>
                 {isFulfilled && (
                   <span className="inline-flex items-center space-x-1 text-green-600 font-medium bg-green-100 px-3 py-1 rounded-full text-sm">
@@ -223,26 +297,23 @@ export const MatchingResults = () => {
               </div>
               
               <div className="p-6">
-                <div className="space-y-4">
-                  {candidates.map((worker: any, index: number) => {
-                    const isSelected = selectedForRole.includes(worker.id);
-                    const isPrimary = index < role.quantityNeeded;
-
-                    return (
+                {/* PRIMARY CREW SECTION */}
+                <h3 className="text-sm font-bold text-indigo-700 uppercase tracking-wider mb-4 flex items-center border-b pb-2">
+                  Primary Crew
+                </h3>
+                <div className="space-y-4 mb-8">
+                  {primaryCrew.length === 0 ? (
+                     <p className="text-slate-500 text-sm italic">No primary workers selected.</p>
+                  ) : (
+                    primaryCrew.map((worker: any) => (
                       <div 
                         key={worker.id} 
-                        className={`flex flex-col md:flex-row justify-between items-start md:items-center p-4 rounded-lg border-2 transition-all ${
-                          isSelected ? 'border-teal-500 bg-teal-50' : 'border-slate-100 hover:border-slate-200 bg-white'
-                        }`}
+                        className="flex flex-col md:flex-row justify-between items-start md:items-center p-4 rounded-lg border-2 border-teal-500 bg-teal-50 transition-all"
                       >
                         <div className="flex-1 mb-4 md:mb-0">
                           <div className="flex items-center space-x-3 mb-2">
                             <h3 className="text-lg font-bold text-slate-900">{worker.name}</h3>
-                            {isPrimary ? (
-                              <span className="px-2 py-1 text-xs font-semibold bg-blue-100 text-blue-800 rounded">Optimal Match</span>
-                            ) : (
-                              <span className="px-2 py-1 text-xs font-semibold bg-slate-100 text-slate-600 rounded">Backup #{index - role.quantityNeeded + 1}</span>
-                            )}
+                            <span className="px-2 py-1 text-xs font-semibold bg-blue-100 text-blue-800 rounded">Optimal Match</span>
                             <span className="text-sm font-medium text-slate-500">Score: {worker.score}/100</span>
                           </div>
                           
@@ -275,31 +346,68 @@ export const MatchingResults = () => {
                         </div>
 
                         <div className="md:ml-6 flex-shrink-0 flex space-x-2">
-                          {isSelected && (
-                            <button
-                              onClick={() => handleSimulateNoShow(worker.id)}
-                              className="px-4 py-2 text-sm rounded-lg font-medium bg-red-50 text-red-700 border border-red-200 hover:bg-red-100 transition-colors"
-                            >
-                              🛡️ SIMULATE NO-SHOW
-                            </button>
-                          )}
                           <button
-                            onClick={() => handleSelect(role.id, worker.id, role.quantityNeeded)}
-                            disabled={!isSelected && isFulfilled}
-                            className={`px-6 py-2 rounded-lg font-medium transition-colors ${
-                              isSelected 
-                                ? 'bg-teal-600 text-white hover:bg-teal-700' 
-                                : isFulfilled 
-                                  ? 'bg-slate-100 text-slate-400 cursor-not-allowed'
-                                  : 'bg-white border border-slate-300 text-slate-700 hover:bg-slate-50'
-                            }`}
+                            onClick={() => handleSimulateNoShow(worker.id)}
+                            className="px-4 py-2 text-sm rounded-lg font-medium bg-red-50 text-red-700 border border-red-200 hover:bg-red-100 transition-colors"
                           >
-                            {isSelected ? 'Selected' : 'Select'}
+                            🛡️ SIMULATE NO-SHOW
                           </button>
                         </div>
                       </div>
-                    );
-                  })}
+                    ))
+                  )}
+                </div>
+
+                {/* BACKUP OPTIONS SECTION */}
+                <h3 className="text-sm font-bold text-slate-600 uppercase tracking-wider mb-4 mt-8 flex items-center border-b pb-2">
+                  Backup Options
+                </h3>
+                <div className="space-y-4">
+                  {backupCrew.length === 0 ? (
+                    <p className="text-slate-500 text-sm italic">No backup candidates available for this role.</p>
+                  ) : (
+                    backupCrew.map((worker: any, index: number) => (
+                      <div 
+                        key={worker.id} 
+                        className="flex flex-col md:flex-row justify-between items-start md:items-center p-4 rounded-lg border-2 border-slate-100 bg-white hover:border-slate-200 transition-all opacity-80"
+                      >
+                        <div className="flex-1 mb-4 md:mb-0">
+                          <div className="flex items-center space-x-3 mb-2">
+                            <h3 className="text-lg font-bold text-slate-700">{worker.name}</h3>
+                            <span className="px-2 py-1 text-xs font-semibold bg-slate-100 text-slate-600 rounded">Backup #{index + 1}</span>
+                            <span className="text-sm font-medium text-slate-500">Score: {worker.score}/100</span>
+                          </div>
+                          
+                          <div className="flex flex-wrap gap-4 text-sm text-slate-600 mb-3">
+                            <div className="flex items-center">
+                              <Star className="w-4 h-4 text-yellow-400 mr-1 fill-current" />
+                              <span>{worker.rating}</span>
+                              <ShieldCheck className="w-4 h-4 text-green-500 ml-3 mr-1" />
+                              <span>{worker.reliabilityScore}%</span>
+                            </div>
+                            <div className="flex items-center font-medium text-slate-800">
+                              <IndianRupee className="w-4 h-4 mr-1" />
+                              <span>{worker.priceMin} - {worker.priceMax}</span>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="md:ml-6 flex-shrink-0 flex space-x-2">
+                          <button
+                            onClick={() => handleSelect(role.id, worker.id, role.quantityNeeded)}
+                            disabled={isFulfilled}
+                            className={`px-6 py-2 rounded-lg font-medium transition-colors ${
+                              isFulfilled 
+                                ? 'bg-slate-100 text-slate-400 cursor-not-allowed'
+                                : 'bg-white border border-slate-300 text-slate-700 hover:bg-slate-50'
+                            }`}
+                          >
+                            Swap In
+                          </button>
+                        </div>
+                      </div>
+                    ))
+                  )}
                 </div>
               </div>
             </div>
