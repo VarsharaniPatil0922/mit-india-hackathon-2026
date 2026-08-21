@@ -9,6 +9,7 @@ export const MatchingResults = () => {
   const navigate = useNavigate();
   
   const [results, setResults] = useState<any[]>([]);
+  const [backupPools, setBackupPools] = useState<any[]>([]);
   const [selectedWorkers, setSelectedWorkers] = useState<Record<string, string[]>>({});
   const [loading, setLoading] = useState(true);
 
@@ -23,6 +24,9 @@ export const MatchingResults = () => {
           const data = await response.json();
           if (data.candidate_pools) {
             setResults(data.candidate_pools);
+            if (data.backup_pools) {
+              setBackupPools(data.backup_pools);
+            }
             if (data.status === "optimized" && data.crew) {
               const preSelected: Record<string, string[]> = {};
               data.crew.forEach((c: any) => {
@@ -206,6 +210,39 @@ export const MatchingResults = () => {
           );
         })}
       </div>
+
+      {backupPools.length > 0 && (
+        <div className="mt-12 bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+          <div className="bg-slate-50 px-6 py-4 border-b border-slate-200">
+            <h2 className="text-xl font-bold text-slate-800">BACKUP OPTIONS</h2>
+            <p className="text-sm text-slate-500">Ranked standby candidates for potential replacements.</p>
+          </div>
+          <div className="p-6 space-y-6">
+            {backupPools.map((pool: any, pIdx: number) => (
+              <div key={pIdx}>
+                <h3 className="text-lg font-bold text-slate-700 mb-3">{pool.role_name}</h3>
+                {pool.backups.length === 0 ? (
+                  <p className="text-slate-500 italic text-sm">No backups available.</p>
+                ) : (
+                  <ul className="space-y-2">
+                    {pool.backups.map((backup: any, bIdx: number) => (
+                      <li key={bIdx} className="flex justify-between items-center p-3 bg-slate-50 rounded border border-slate-100">
+                        <span className="font-medium text-slate-700">
+                          Backup {backup.rank} &mdash; {backup.name} &mdash; {backup.score}
+                        </span>
+                        <span className="text-sm text-slate-500 font-medium">
+                          <IndianRupee className="w-3 h-3 inline mr-1"/>
+                          {backup.estimated_price}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       <div className="fixed bottom-0 left-0 right-0 bg-white border-t border-slate-200 shadow-2xl p-4">
         <div className="max-w-7xl mx-auto flex justify-between items-center">

@@ -245,6 +245,37 @@ def optimize_crew(event_id: int, db: Session = Depends(get_db), current_user: mo
     
     # Merge existing payload to maintain compatibility
     optimization_result["candidate_pools"] = formatted_results
+    
+    # Phase 4: Backup Selection
+    if optimization_result.get("status") == "optimized":
+        selected_worker_ids = {w["worker_id"] for w in optimization_result.get("crew", [])}
+        backup_pools = []
+        for role in roles:
+            role_backups = []
+            rank = 1
+            # candidates_by_role is already sorted by score (descending)
+            for c in candidates_by_role.get(role.id, []):
+                worker = c["worker"]
+                if worker.id not in selected_worker_ids:
+                    role_backups.append({
+                        "worker_id": worker.id,
+                        "name": worker.name,
+                        "role": role.role_name,
+                        "score": round(c["score"], 2),
+                        "estimated_price": round((worker.price_min + worker.price_max) / 2, 2),
+                        "rank": rank
+                    })
+                    rank += 1
+                    if len(role_backups) == 5:
+                        break
+            backup_pools.append({
+                "role_name": role.role_name,
+                "backups": role_backups
+            })
+        optimization_result["backup_pools"] = backup_pools
+    else:
+        optimization_result["backup_pools"] = []
+        
     return optimization_result
 
 @app.post("/api/crew/confirm")
