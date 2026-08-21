@@ -39,7 +39,7 @@ function App() {
             <Route path="/organizer/dashboard" element={<OrganizerDashboard />} />
             <Route path="/organizer/create-event" element={<CreateEvent />} />
             <Route path="/organizer/matching/:eventId" element={<MatchingResults />} />
-            <Route path="/organizer/crew-summary" element={<CrewSummary />} />
+            <Route path="/organizer/crew-summary/:eventId" element={<CrewSummary />} />
             <Route path="/organizer/live/:eventId" element={<LiveEventDashboard />} />
             
             {/* Placeholder routes for incomplete pages */}

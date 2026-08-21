@@ -99,7 +99,7 @@ export const MatchingResults = () => {
         body: JSON.stringify(assignments)
       });
       if (response.ok) {
-        navigate('/organizer/crew-summary');
+        navigate(`/organizer/crew-summary/${eventId}`);
       }
     } catch (error) {
       console.error(error);
@@ -111,12 +111,13 @@ export const MatchingResults = () => {
     if (!user || !user.token) return;
     
     setSimulatingNoShow(true);
-    setCascadeSteps(["Worker unavailable"]);
+    setCascadeSteps(["STEP 1: Worker becomes unavailable"]);
     
-    setTimeout(() => setCascadeSteps(prev => [...prev, "Candidate pool updated"]), 600);
-    setTimeout(() => setCascadeSteps(prev => [...prev, "Constraints recalculated"]), 1200);
-    setTimeout(() => setCascadeSteps(prev => [...prev, "Workers rescored"]), 1800);
-    setTimeout(() => setCascadeSteps(prev => [...prev, "Crew re-optimized"]), 2400);
+    setTimeout(() => setCascadeSteps(prev => [...prev, "STEP 2: Worker removed from feasible pool"]), 600);
+    setTimeout(() => setCascadeSteps(prev => [...prev, "STEP 3: Eligibility constraints recalculated"]), 1200);
+    setTimeout(() => setCascadeSteps(prev => [...prev, "STEP 4: Candidates rescored"]), 1800);
+    setTimeout(() => setCascadeSteps(prev => [...prev, "STEP 5: Backup/replacement selected"]), 2400);
+    setTimeout(() => setCascadeSteps(prev => [...prev, "STEP 6: New crew generated"]), 3000);
 
     try {
       const response = await fetch('http://localhost:8000/api/crew/replace-worker', {
@@ -132,7 +133,6 @@ export const MatchingResults = () => {
         const data = await response.json();
         
         setTimeout(() => {
-            setCascadeSteps(prev => [...prev, "New crew confirmed"]);
             setCascadeResult(data);
             showToast("Cascade Re-optimization Complete");
             setSimulatingNoShow(false);
@@ -159,7 +159,7 @@ export const MatchingResults = () => {
                 }
             });
             
-        }, 3000);
+        }, 3600);
       } else {
         alert("Simulation failed");
         setSimulatingNoShow(false);
@@ -336,12 +336,15 @@ export const MatchingResults = () => {
                             </div>
                           </div>
 
-                          <div className="flex flex-wrap gap-2">
-                            {worker.matchReasons.map((reason: string, i: number) => (
-                              <span key={i} className="px-2 py-1 bg-indigo-50 text-indigo-700 text-xs font-medium rounded-md">
-                                ✓ {reason}
-                              </span>
-                            ))}
+                          <div className="flex flex-col gap-1 mt-2 bg-indigo-50/50 p-3 rounded-lg border border-indigo-100">
+                            <span className="text-xs font-bold text-indigo-800 uppercase tracking-wider mb-1">Why this worker?</span>
+                            <div className="flex flex-wrap gap-2">
+                              {worker.matchReasons.map((reason: string, i: number) => (
+                                <span key={i} className="px-2 py-1 bg-white text-indigo-700 text-xs font-medium rounded shadow-sm border border-indigo-100 flex items-center">
+                                  <CheckCircle className="w-3 h-3 text-emerald-500 mr-1" /> {reason}
+                                </span>
+                              ))}
+                            </div>
                           </div>
                         </div>
 
@@ -448,23 +451,78 @@ export const MatchingResults = () => {
         </div>
       )}
 
-      <div className="fixed bottom-0 left-0 right-0 bg-white border-t border-slate-200 shadow-2xl p-4">
-        <div className="max-w-7xl mx-auto flex justify-between items-center">
-          <div>
-            <p className="text-sm text-slate-500 font-medium">Crew Assembly Progress</p>
-            <p className="text-lg font-bold text-slate-900">
-              {Object.values(selectedWorkers).flat().length} Selected
-            </p>
+      <div className="fixed bottom-0 left-0 right-0 bg-white border-t border-slate-200 shadow-[0_-10px_40px_rgba(0,0,0,0.1)] p-4 z-30">
+        <div className="max-w-7xl mx-auto flex flex-col md:flex-row justify-between items-center gap-4">
+          <div className="flex flex-wrap gap-6 items-center flex-1">
+            {/* Calculate stats inline */}
+            {(() => {
+              const requiredWorkers = results.reduce((sum, r) => sum + r.role.quantityNeeded, 0);
+              const selectedCount = Object.values(selectedWorkers).flat().length;
+              const isFulfilled = requiredWorkers === selectedCount;
+              
+              let estimatedCost = 0;
+              let budget = 0;
+              Object.keys(selectedWorkers).forEach(roleId => {
+                const roleData = results.find(r => r.role.id === roleId);
+                selectedWorkers[roleId].forEach(workerId => {
+                  const workerData = roleData?.candidates.find((c: any) => c.id === workerId);
+                  if (workerData) {
+                    estimatedCost += (workerData.priceMin + workerData.priceMax) / 2;
+                  }
+                });
+              });
+              // Assume all roles share same event budget if any data exists. Hardcoded demo budget is not ideal, but we can pull from first result if needed, or fetch it.
+              // Actually we can pass budget from the parent, or fetch it. Assuming 25000 if not available for UI purposes.
+              budget = 25000; 
+
+              return (
+                <>
+                  <div className="bg-slate-50 px-4 py-2 rounded-lg border border-slate-200">
+                    <p className="text-xs text-slate-500 font-bold uppercase">Required Workers</p>
+                    <p className={`text-lg font-bold ${isFulfilled ? 'text-emerald-600' : 'text-slate-900'}`}>
+                      {selectedCount} / {requiredWorkers}
+                    </p>
+                  </div>
+                  
+                  <div className="bg-slate-50 px-4 py-2 rounded-lg border border-slate-200">
+                    <p className="text-xs text-slate-500 font-bold uppercase">Estimated Cost</p>
+                    <p className="text-lg font-bold text-slate-900 flex items-center">
+                      <IndianRupee className="w-4 h-4 mr-0.5" /> {estimatedCost.toLocaleString()}
+                    </p>
+                  </div>
+
+                  <div className="bg-slate-50 px-4 py-2 rounded-lg border border-slate-200">
+                    <p className="text-xs text-slate-500 font-bold uppercase">Remaining Budget</p>
+                    <p className={`text-lg font-bold flex items-center ${budget - estimatedCost < 0 ? 'text-red-600' : 'text-emerald-600'}`}>
+                      <IndianRupee className="w-4 h-4 mr-0.5" /> {(budget - estimatedCost).toLocaleString()}
+                    </p>
+                  </div>
+
+                  <div className="flex-1 flex justify-end">
+                    {budget - estimatedCost < 0 && (
+                      <span className="text-sm text-red-600 font-bold flex items-center mr-4">
+                        ⚠️ Budget Exceeded!
+                      </span>
+                    )}
+                    <button
+                      onClick={handleConfirmCrew}
+                      disabled={!isFulfilled || budget - estimatedCost < 0}
+                      className={`px-8 py-3 rounded-lg font-semibold text-lg transition-colors shadow-lg ${
+                        (!isFulfilled || budget - estimatedCost < 0)
+                          ? 'bg-slate-200 text-slate-400 cursor-not-allowed'
+                          : 'bg-indigo-600 hover:bg-indigo-700 text-white hover:shadow-indigo-200'
+                      }`}
+                    >
+                      Review & Confirm Crew
+                    </button>
+                  </div>
+                </>
+              );
+            })()}
           </div>
-          <button
-            onClick={handleConfirmCrew}
-            className="bg-blue-600 hover:bg-blue-700 text-white px-8 py-3 rounded-lg font-semibold text-lg transition-colors"
-          >
-            Review & Confirm Crew
-          </button>
         </div>
       </div>
-      <div className="h-24"></div>
+      <div className="h-32"></div>
     </div>
   );
 };

@@ -1,14 +1,38 @@
-import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import React, { useState, useEffect } from 'react';
+import { useParams, useNavigate } from 'react-router-dom';
+import { useAuth } from '../context/AuthContext';
 import { CheckCircle2, ShieldCheck, IndianRupee, CreditCard, Lock, ArrowRight, User } from 'lucide-react';
-import { DEMO_OPTIMIZATION_RESULT } from '../services/demoData';
 
 export const CrewSummary = () => {
+  const { eventId } = useParams();
+  const { user } = useAuth();
   const navigate = useNavigate();
   const [isProcessing, setIsProcessing] = useState(false);
   const [isSuccess, setIsSuccess] = useState(false);
+  const [data, setData] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
 
-  const data = DEMO_OPTIMIZATION_RESULT;
+  useEffect(() => {
+    const fetchCrew = async () => {
+      if (!user || !user.token) return;
+      try {
+        const response = await fetch(`http://localhost:8000/api/crew/${eventId}`, {
+          headers: {
+            'Authorization': `Bearer ${user.token}`
+          }
+        });
+        if (response.ok) {
+          const result = await response.json();
+          setData(result);
+        }
+      } catch (err) {
+        console.error(err);
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchCrew();
+  }, [eventId, user]);
   
   const handlePayment = () => {
     setIsProcessing(true);
@@ -57,6 +81,14 @@ export const CrewSummary = () => {
     );
   }
 
+  if (loading) {
+    return <div className="max-w-5xl mx-auto px-4 py-24 text-center">Loading Invoice...</div>;
+  }
+
+  if (!data || !data.crew) {
+    return <div className="max-w-5xl mx-auto px-4 py-24 text-center text-red-500">Failed to load crew data.</div>;
+  }
+
   return (
     <div className="max-w-5xl mx-auto px-4 py-12">
       <div className="mb-10 text-center">
@@ -77,7 +109,7 @@ export const CrewSummary = () => {
             </div>
             
             <div className="divide-y divide-slate-100">
-              {data.crew.map((item, idx) => (
+              {data.crew.map((item: any, idx: number) => (
                 <div key={idx} className="p-6 flex items-center justify-between">
                   <div className="flex items-center gap-4">
                     <div className="w-12 h-12 bg-slate-100 rounded-full flex items-center justify-center text-slate-400">
@@ -121,20 +153,27 @@ export const CrewSummary = () => {
               <CreditCard className="w-5 h-5 text-indigo-600" />
               Payment Details
             </h2>
-
+            
             <div className="space-y-4 mb-8">
               <div className="border border-indigo-500 bg-indigo-50/30 p-4 rounded-xl flex items-start gap-3 cursor-pointer">
                 <input type="radio" name="payment" className="mt-1" defaultChecked />
-                <div>
-                  <p className="font-bold text-slate-900 text-sm">Credit Card</p>
-                  <p className="text-xs text-slate-500 mt-1">Visa ending in 4242</p>
+                <div className="flex-1">
+                  <p className="font-bold text-slate-900 text-sm flex justify-between">
+                    Pay Online 
+                    <span className="bg-indigo-100 text-indigo-700 text-xs px-2 py-0.5 rounded">Preferred</span>
+                  </p>
+                  <p className="text-xs text-slate-500 mt-1">Scan QR or enter card details</p>
+                  <div className="mt-3 p-3 bg-white rounded border border-indigo-200 text-center">
+                    <img src="https://api.qrserver.com/v1/create-qr-code/?size=100x100&data=crewconnect" alt="Payment QR" className="mx-auto mb-2 opacity-80" />
+                    <p className="text-[10px] text-slate-400 font-mono">Ref ID: CC-TXN-{eventId}</p>
+                  </div>
                 </div>
               </div>
               <div className="border border-slate-200 p-4 rounded-xl flex items-start gap-3 cursor-pointer hover:border-slate-300">
                 <input type="radio" name="payment" className="mt-1" />
                 <div>
-                  <p className="font-bold text-slate-900 text-sm">UPI</p>
-                  <p className="text-xs text-slate-500 mt-1">Pay via Google Pay, PhonePe</p>
+                  <p className="font-bold text-slate-900 text-sm">Pay Later</p>
+                  <p className="text-xs text-slate-500 mt-1">Settle payment after the event completion</p>
                 </div>
               </div>
             </div>

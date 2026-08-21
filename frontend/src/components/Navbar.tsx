@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { Users, LogOut, Bell, User as UserIcon } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
@@ -6,6 +6,21 @@ import { useAuth } from '../context/AuthContext';
 export const Navbar = () => {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
+  const [showNotifications, setShowNotifications] = useState(false);
+  const [notifications, setNotifications] = useState<any[]>([]);
+
+  useEffect(() => {
+    if (user && user.token) {
+      fetch('http://localhost:8000/api/notifications', {
+        headers: { 'Authorization': `Bearer ${user.token}` }
+      })
+      .then(res => res.json())
+      .then(data => {
+        if (Array.isArray(data)) setNotifications(data);
+      })
+      .catch(err => console.error(err));
+    }
+  }, [user]);
 
   const handleLogout = () => {
     logout();
@@ -40,10 +55,39 @@ export const Navbar = () => {
                 <div className="hidden md:flex items-center text-sm font-medium text-slate-700 bg-slate-50 px-3 py-1.5 rounded-full border border-slate-100">
                   {user.email.split('@')[0]}
                 </div>
-                <button className="p-2 text-slate-400 hover:text-indigo-600 transition-colors relative">
-                  <Bell className="h-5 w-5" />
-                  <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-red-500 rounded-full border-2 border-white"></span>
-                </button>
+                <div className="relative">
+                  <button 
+                    onClick={() => setShowNotifications(!showNotifications)}
+                    className="p-2 text-slate-400 hover:text-indigo-600 transition-colors relative"
+                  >
+                    <Bell className="h-5 w-5" />
+                    {notifications.length > 0 && (
+                      <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-red-500 rounded-full border-2 border-white"></span>
+                    )}
+                  </button>
+
+                  {showNotifications && (
+                    <div className="absolute right-0 mt-2 w-72 bg-white rounded-lg shadow-xl border border-slate-200 z-50 overflow-hidden">
+                      <div className="bg-slate-50 px-4 py-3 border-b border-slate-200">
+                        <h3 className="font-semibold text-slate-800 text-sm">Notifications</h3>
+                      </div>
+                      <div className="max-h-80 overflow-y-auto p-2">
+                        {notifications.length === 0 ? (
+                          <div className="p-4 text-center text-sm text-slate-500">No new notifications</div>
+                        ) : (
+                          notifications.map((notif: any) => (
+                            <div key={notif.id} className="p-3 hover:bg-slate-50 rounded-lg mb-1 border-b border-slate-100 last:border-0">
+                              <p className="text-sm text-slate-700">{notif.message}</p>
+                              <span className="text-[10px] text-slate-400 mt-1 block">
+                                {new Date(notif.created_at).toLocaleDateString()}
+                              </span>
+                            </div>
+                          ))
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
                 <Link to={`/${user.userType}/dashboard`} className="p-2 text-slate-400 hover:text-indigo-600 transition-colors">
                   <UserIcon className="h-5 w-5" />
                 </Link>

@@ -433,6 +433,45 @@ def confirm_crew(assignments: List[schemas.CrewAssignmentCreate], db: Session = 
     db.commit()
     return {"message": "Crew confirmed and notified"}
 
+@app.get("/api/crew/{event_id}")
+def get_crew_for_event(event_id: int, db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_user)):
+    event = db.query(models.Event).filter(models.Event.id == event_id).first()
+    if not event:
+        raise HTTPException(status_code=404, detail="Event not found")
+        
+    assignments = db.query(models.CrewAssignment).filter(
+        models.CrewAssignment.event_id == event_id,
+        models.CrewAssignment.status.in_(["pending", "confirmed"])
+    ).all()
+    
+    crew_list = []
+    total_cost = 0
+    for a in assignments:
+        crew_list.append({
+            "assignment_id": a.id,
+            "role": a.role.role_name,
+            "quantity": 1,
+            "selected": {
+                "id": a.worker.id,
+                "name": a.worker.name,
+                "price": a.price_agreed,
+                "rating": a.worker.rating,
+                "reliability": a.worker.reliability_score
+            },
+            "status": a.status
+        })
+        total_cost += a.price_agreed
+        
+    return {
+        "event_id": event.id,
+        "crew": crew_list,
+        "budget": {
+            "total": event.budget,
+            "used": total_cost,
+            "remaining": event.budget - total_cost
+        }
+    }
+
 @app.get("/api/worker/dashboard")
 def get_worker_dashboard(db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_user)):
     worker = db.query(models.Worker).filter(models.Worker.user_id == current_user.id).first()
@@ -489,7 +528,7 @@ def worker_respond(req: WorkerResponse, db: Session = Depends(get_db), current_u
     db.commit()
     return {"status": "success", "new_status": assignment.status}
 
-@app.get("/api/worker/notifications", response_model=List[schemas.NotificationResponse])
+@app.get("/api/notifications", response_model=List[schemas.NotificationResponse])
 def get_notifications(db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_user)):
     notifs = db.query(models.Notification).filter(models.Notification.user_id == current_user.id).order_by(models.Notification.created_at.desc()).all()
     return notifs

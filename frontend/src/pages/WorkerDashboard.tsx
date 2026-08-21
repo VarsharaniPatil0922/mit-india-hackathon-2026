@@ -16,9 +16,12 @@ export const WorkerDashboard = () => {
       if (res.ok) {
         const data = await res.json();
         setOffers(data.offers);
+      } else {
+        showToast("Failed to fetch offers", true);
       }
     } catch (err) {
       console.error(err);
+      showToast("Network error while fetching offers", true);
     } finally {
       setLoading(false);
     }
@@ -28,9 +31,15 @@ export const WorkerDashboard = () => {
     fetchOffers();
   }, []);
 
-  const showToast = (msg: string) => {
+  const [isErrorToast, setIsErrorToast] = useState(false);
+
+  const showToast = (msg: string, isError: boolean = false) => {
     setToastMsg(msg);
-    setTimeout(() => setToastMsg(""), 3000);
+    setIsErrorToast(isError);
+    setTimeout(() => {
+      setToastMsg("");
+      setIsErrorToast(false);
+    }, 4000);
   };
 
   const handleAction = async (assignmentId: number, action: 'accepted' | 'declined') => {
@@ -45,20 +54,22 @@ export const WorkerDashboard = () => {
       });
       
       if (res.ok) {
-        showToast(`Worker ${action} the event.`);
+        showToast(`You have ${action} the offer.`);
         fetchOffers(); // Refresh state immediately
+      } else {
+        showToast("Failed to process your response", true);
       }
     } catch (err) {
       console.error(err);
+      showToast("Network error while processing response", true);
     }
   };
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 relative">
-      {/* Toast Notification */}
       {toastMsg && (
-        <div className="fixed bottom-6 right-6 bg-slate-900 text-white px-6 py-3 rounded-lg shadow-2xl z-50 animate-bounce flex items-center">
-          <CheckCircle className="w-5 h-5 text-emerald-400 mr-3" />
+        <div className={`fixed bottom-6 right-6 text-white px-6 py-3 rounded-lg shadow-2xl z-50 animate-bounce flex items-center ${isErrorToast ? 'bg-red-600' : 'bg-slate-900'}`}>
+          <CheckCircle className={`w-5 h-5 mr-3 ${isErrorToast ? 'text-white' : 'text-emerald-400'}`} />
           <span className="font-semibold">{toastMsg}</span>
         </div>
       )}
