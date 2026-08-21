@@ -62,3 +62,65 @@ export const eventsApi = {
     return await response.json();
   }
 };
+
+const handleResponse = async (response: Response) => {
+  const data = await response.json();
+  if (!response.ok) {
+    throw new Error(data.detail || 'API request failed');
+  }
+  return data;
+};
+
+export const paymentsApi = {
+  createPayment: async (assignment_id: number, token: string) => {
+    const response = await fetch(`${API_BASE}/payments/create`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`
+      },
+      body: JSON.stringify({ assignment_id })
+    });
+    return handleResponse(response);
+  },
+  
+  payEscrow: async (payment_id: number, token: string) => {
+    const response = await fetch(`${API_BASE}/payments/${payment_id}/pay`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token}`
+      }
+    });
+    return handleResponse(response);
+  },
+  
+  releasePayment: async (payment_id: number, token: string) => {
+    const response = await fetch(`${API_BASE}/payments/${payment_id}/release`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token}`
+      }
+    });
+    return handleResponse(response);
+  },
+
+  getEventPayments: async (event_id: string, token: string) => {
+    const response = await fetch(`${API_BASE}/events/${event_id}/payments`, {
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${token}`
+      }
+    });
+    return handleResponse(response);
+  },
+  
+  getWorkerPayments: async (token: string) => {
+    const response = await fetch(`${API_BASE}/worker/payments`, {
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${token}`
+      }
+    });
+    return handleResponse(response);
+  }
+};

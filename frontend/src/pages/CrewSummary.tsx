@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { CheckCircle2, ShieldCheck, IndianRupee, CreditCard, Lock, ArrowRight, User } from 'lucide-react';
+import { paymentsApi } from '../services/api';
 
 export const CrewSummary = () => {
   const { eventId } = useParams();
@@ -10,36 +11,88 @@ export const CrewSummary = () => {
   const [isProcessing, setIsProcessing] = useState(false);
   const [isSuccess, setIsSuccess] = useState(false);
   const [data, setData] = useState<any>(null);
+  const [payments, setPayments] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    const fetchCrew = async () => {
-      if (!user || !user.token) return;
-      try {
-        const response = await fetch(`http://localhost:8000/api/crew/${eventId}`, {
-          headers: {
-            'Authorization': `Bearer ${user.token}`
-          }
-        });
-        if (response.ok) {
-          const result = await response.json();
-          setData(result);
+  const fetchCrewAndPayments = async () => {
+    if (!user || !user.token) return;
+    try {
+      const response = await fetch(`http://localhost:8000/api/crew/${eventId}`, {
+        headers: {
+          'Authorization': `Bearer ${user.token}`
         }
-      } catch (err) {
-        console.error(err);
-      } finally {
-        setLoading(false);
+      });
+      if (response.ok) {
+        const result = await response.json();
+        setData(result);
       }
-    };
-    fetchCrew();
+
+      try {
+        const pRes = await paymentsApi.getEventPayments(eventId as string, user.token);
+        setPayments(pRes);
+      } catch (err) {
+        setPayments([]);
+      }
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchCrewAndPayments();
   }, [eventId, user]);
   
-  const handlePayment = () => {
+  const handleCreateEscrow = async () => {
     setIsProcessing(true);
-    setTimeout(() => {
+    try {
+      // Create a payment for each assignment
+      for (const item of data.crew) {
+        await paymentsApi.createPayment(item.assignment_id, user!.token!);
+      }
+      await fetchCrewAndPayments();
+    } catch (error) {
+      console.error("Failed to create escrow", error);
+      alert("Failed to create escrow payments");
+    } finally {
       setIsProcessing(false);
+    }
+  };
+
+  const handleSimulatePayment = async () => {
+    setIsProcessing(true);
+    try {
+      for (const p of payments) {
+        if (p.status === 'PENDING') {
+          await paymentsApi.payEscrow(p.id, user!.token!);
+        }
+      }
       setIsSuccess(true);
-    }, 2000);
+      await fetchCrewAndPayments();
+    } catch (error) {
+      console.error("Failed to simulate payment", error);
+      alert("Failed to pay escrow");
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const handleReleasePayment = async () => {
+    setIsProcessing(true);
+    try {
+      for (const p of payments) {
+        if (p.status === 'HELD_IN_ESCROW') {
+          await paymentsApi.releasePayment(p.id, user!.token!);
+        }
+      }
+      await fetchCrewAndPayments();
+    } catch (error) {
+      console.error("Failed to release payment", error);
+      alert("Failed to release payment");
+    } finally {
+      setIsProcessing(false);
+    }
   };
 
   if (isSuccess) {
@@ -51,30 +104,30 @@ export const CrewSummary = () => {
           </div>
         </div>
         
-        <h1 className="text-4xl font-bold text-slate-900 mb-4">Payment Successful!</h1>
+        <h1 className="text-4xl font-bold text-slate-900 mb-4">✓ Payment successful</h1>
         <p className="text-xl text-slate-600 mb-12">
-          Your optimal crew has been officially booked. Escrow accounts have been funded and the crew has been notified.
+          ₹{data?.budget?.used?.toLocaleString()} secured in CrewConnect Escrow
         </p>
 
         <div className="bg-slate-50 rounded-2xl p-8 border border-slate-200 inline-block text-left mb-12 min-w-[300px]">
           <div className="text-sm text-slate-500 mb-1">Transaction ID</div>
-          <div className="font-mono text-slate-900 font-bold mb-4">TXN-847294729-CC</div>
+          <div className="font-mono text-slate-900 font-bold mb-4">{payments.length > 0 ? payments[0].transaction_id : 'CC-DEMO-XXXXXX'}</div>
           
           <div className="text-sm text-slate-500 mb-1">Amount Paid (Escrow)</div>
           <div className="text-2xl text-slate-900 font-bold mb-4 flex items-center"><IndianRupee className="w-5 h-5 mr-1" />{data.budget.used.toLocaleString()}</div>
           
           <div className="text-sm text-slate-500 mb-1">Status</div>
           <div className="inline-flex items-center text-emerald-600 font-bold bg-emerald-100 px-3 py-1 rounded-full text-sm">
-            Fully Funded
+            FUNDS HELD IN ESCROW
           </div>
         </div>
 
         <div className="space-x-4 flex justify-center">
           <button
-            onClick={() => navigate('/organizer/live/demo-event-1')}
+            onClick={() => setIsSuccess(false)}
             className="flex items-center bg-indigo-600 hover:bg-indigo-700 text-white px-8 py-4 rounded-xl font-bold transition-all hover:scale-105 shadow-lg shadow-indigo-200"
           >
-            Go to Live Event Dashboard <ArrowRight className="ml-2 w-5 h-5" />
+            Go to Dashboard <ArrowRight className="ml-2 w-5 h-5" />
           </button>
         </div>
       </div>
@@ -88,6 +141,9 @@ export const CrewSummary = () => {
   if (!data || !data.crew) {
     return <div className="max-w-5xl mx-auto px-4 py-24 text-center text-red-500">Failed to load crew data.</div>;
   }
+
+  const escrowStatus = payments.length === 0 ? 'NONE' : payments[0].status;
+  const transactionId = payments.length > 0 ? payments[0].transaction_id : 'PENDING-GEN';
 
   return (
     <div className="max-w-5xl mx-auto px-4 py-12">
@@ -131,8 +187,8 @@ export const CrewSummary = () => {
             
             <div className="bg-slate-50 p-6 border-t border-slate-200">
               <div className="flex justify-between text-sm text-slate-600 mb-2">
-                <span>Subtotal</span>
-                <span className="flex items-center"><IndianRupee className="w-3 h-3 mr-0.5" />{data.budget.used.toLocaleString()}</span>
+                <span>TOTAL CREW COST</span>
+                <span className="flex items-center font-bold text-slate-900 text-lg"><IndianRupee className="w-4 h-4 mr-0.5" />{data.budget.used.toLocaleString()}</span>
               </div>
               <div className="flex justify-between text-sm text-slate-600 mb-4">
                 <span>Platform Fee (2%)</span>
@@ -155,49 +211,67 @@ export const CrewSummary = () => {
             </h2>
             
             <div className="space-y-4 mb-8">
-              <div className="border border-indigo-500 bg-indigo-50/30 p-4 rounded-xl flex items-start gap-3 cursor-pointer">
-                <input type="radio" name="payment" className="mt-1" defaultChecked />
-                <div className="flex-1">
-                  <p className="font-bold text-slate-900 text-sm flex justify-between">
-                    Pay Online 
-                    <span className="bg-indigo-100 text-indigo-700 text-xs px-2 py-0.5 rounded">Preferred</span>
-                  </p>
-                  <p className="text-xs text-slate-500 mt-1">Scan QR or enter card details</p>
-                  <div className="mt-3 p-3 bg-white rounded border border-indigo-200 text-center">
-                    <img src="https://api.qrserver.com/v1/create-qr-code/?size=100x100&data=crewconnect" alt="Payment QR" className="mx-auto mb-2 opacity-80" />
-                    <p className="text-[10px] text-slate-400 font-mono">Ref ID: CC-TXN-{eventId}</p>
-                  </div>
+              <div className="bg-slate-50 border border-slate-200 rounded-xl p-4">
+                <p className="text-xs text-slate-500 uppercase font-bold tracking-wider mb-1">Escrow Status</p>
+                <div className={`font-bold text-lg mb-4 ${
+                  escrowStatus === 'RELEASED' ? 'text-blue-600' :
+                  escrowStatus === 'HELD_IN_ESCROW' ? 'text-emerald-600' :
+                  escrowStatus === 'PENDING' ? 'text-amber-500' : 'text-slate-500'
+                }`}>
+                  {escrowStatus === 'NONE' ? 'NOT STARTED' : escrowStatus.replace(/_/g, ' ')}
                 </div>
-              </div>
-              <div className="border border-slate-200 p-4 rounded-xl flex items-start gap-3 cursor-pointer hover:border-slate-300">
-                <input type="radio" name="payment" className="mt-1" />
-                <div>
-                  <p className="font-bold text-slate-900 text-sm">Pay Later</p>
-                  <p className="text-xs text-slate-500 mt-1">Settle payment after the event completion</p>
-                </div>
+                
+                {escrowStatus !== 'NONE' && (
+                  <>
+                    <p className="text-xs text-slate-500 uppercase font-bold tracking-wider mb-1">Transaction ID</p>
+                    <p className="font-mono text-sm text-slate-800 font-semibold bg-slate-200 p-2 rounded">{transactionId}</p>
+                  </>
+                )}
               </div>
             </div>
 
-            <button
-              onClick={handlePayment}
-              disabled={isProcessing}
-              className={`w-full py-4 rounded-xl font-bold text-lg transition-all shadow-lg flex justify-center items-center ${
-                isProcessing 
-                  ? 'bg-indigo-400 text-white cursor-wait' 
-                  : 'bg-indigo-600 hover:bg-indigo-700 text-white hover:shadow-indigo-200 active:scale-95'
-              }`}
-            >
-              {isProcessing ? (
-                <div className="flex items-center gap-2">
-                  <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
-                  Processing...
-                </div>
-              ) : (
-                <span className="flex items-center gap-2">
-                  <Lock className="w-5 h-5" /> Pay & Book Crew
-                </span>
-              )}
-            </button>
+            {escrowStatus === 'NONE' && (
+              <button
+                onClick={handleCreateEscrow}
+                disabled={isProcessing}
+                className={`w-full py-4 rounded-xl font-bold text-lg transition-all shadow-lg flex justify-center items-center ${
+                  isProcessing ? 'bg-indigo-400 text-white cursor-wait' : 'bg-indigo-600 hover:bg-indigo-700 text-white active:scale-95'
+                }`}
+              >
+                {isProcessing ? 'Processing...' : 'CREATE ESCROW'}
+              </button>
+            )}
+
+            {escrowStatus === 'PENDING' && (
+              <button
+                onClick={handleSimulatePayment}
+                disabled={isProcessing}
+                className={`w-full py-4 rounded-xl font-bold text-lg transition-all shadow-lg flex justify-center items-center ${
+                  isProcessing ? 'bg-emerald-400 text-white cursor-wait' : 'bg-emerald-600 hover:bg-emerald-700 text-white active:scale-95'
+                }`}
+              >
+                {isProcessing ? 'Processing...' : 'SIMULATE PAYMENT'}
+              </button>
+            )}
+
+            {escrowStatus === 'HELD_IN_ESCROW' && (
+              <button
+                onClick={handleReleasePayment}
+                disabled={isProcessing}
+                className={`w-full py-4 rounded-xl font-bold text-lg transition-all shadow-lg flex justify-center items-center ${
+                  isProcessing ? 'bg-blue-400 text-white cursor-wait' : 'bg-blue-600 hover:bg-blue-700 text-white active:scale-95'
+                }`}
+              >
+                {isProcessing ? 'Processing...' : 'RELEASE PAYMENT'}
+              </button>
+            )}
+
+            {escrowStatus === 'RELEASED' && (
+              <div className="w-full py-4 bg-slate-100 text-slate-500 rounded-xl font-bold text-lg flex justify-center items-center border border-slate-200">
+                FUNDS RELEASED
+              </div>
+            )}
+
             <p className="text-center text-xs text-slate-500 mt-4 flex items-center justify-center gap-1">
               <ShieldCheck className="w-4 h-4 text-emerald-500" />
               Payments are secured in escrow

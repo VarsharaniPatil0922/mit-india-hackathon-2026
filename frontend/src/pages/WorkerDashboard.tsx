@@ -1,12 +1,14 @@
 import React, { useState, useEffect } from 'react';
-import { Bell, MapPin, IndianRupee, Star, Calendar, CheckCircle, Clock, ChevronRight } from 'lucide-react';
+import { Bell, MapPin, IndianRupee, Star, Calendar, CheckCircle, Clock, ChevronRight, CheckCircle2, ShieldCheck } from 'lucide-react';
+import { paymentsApi } from '../services/api';
 
 export const WorkerDashboard = () => {
   const [offers, setOffers] = useState<any[]>([]);
+  const [payments, setPayments] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [toastMsg, setToastMsg] = useState("");
 
-  const fetchOffers = async () => {
+  const fetchOffersAndPayments = async () => {
     try {
       const res = await fetch("http://localhost:8000/api/worker/dashboard", {
         headers: {
@@ -19,6 +21,13 @@ export const WorkerDashboard = () => {
       } else {
         showToast("Failed to fetch offers", true);
       }
+
+      try {
+        const pRes = await paymentsApi.getWorkerPayments(localStorage.getItem("token")!);
+        setPayments(pRes);
+      } catch (err) {
+        console.error("Failed to fetch payments", err);
+      }
     } catch (err) {
       console.error(err);
       showToast("Network error while fetching offers", true);
@@ -28,7 +37,7 @@ export const WorkerDashboard = () => {
   };
 
   useEffect(() => {
-    fetchOffers();
+    fetchOffersAndPayments();
   }, []);
 
   const [isErrorToast, setIsErrorToast] = useState(false);
@@ -55,7 +64,7 @@ export const WorkerDashboard = () => {
       
       if (res.ok) {
         showToast(`You have ${action} the offer.`);
-        fetchOffers(); // Refresh state immediately
+        fetchOffersAndPayments(); // Refresh state immediately
       } else {
         showToast("Failed to process your response", true);
       }
@@ -64,6 +73,10 @@ export const WorkerDashboard = () => {
       showToast("Network error while processing response", true);
     }
   };
+
+  const totalEarnings = payments
+    .filter(p => p.status === 'RELEASED')
+    .reduce((sum, p) => sum + p.amount, 0);
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 relative">
@@ -97,7 +110,7 @@ export const WorkerDashboard = () => {
         <div className="lg:col-span-2 space-y-6">
           <h2 className="text-xl font-bold text-slate-800 flex items-center">
             <Bell className="w-5 h-5 mr-2 text-indigo-600" />
-            Active Offers
+            Active Offers & Assignments
           </h2>
           
           <div className="space-y-6">
@@ -106,84 +119,127 @@ export const WorkerDashboard = () => {
             ) : offers.length === 0 ? (
               <div className="text-slate-500 font-semibold p-6 text-center border-2 border-dashed rounded-xl">No active offers at the moment.</div>
             ) : (
-              offers.map(offer => (
-              <div key={offer.id} className={`bg-white rounded-2xl shadow-sm border overflow-hidden transition-all duration-300 ${
-                offer.status === 'pending' ? 'border-indigo-200 shadow-indigo-100' : 'border-slate-200'
-              }`}>
-                {/* Status Banner */}
-                {offer.status === 'pending' && (
-                  <div className="bg-indigo-50 px-6 py-3 border-b border-indigo-100 flex justify-between items-center">
-                    <span className="flex items-center text-sm font-bold text-indigo-700">
-                      <span className="flex h-2.5 w-2.5 relative mr-2">
-                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-indigo-400 opacity-75"></span>
-                        <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-indigo-500"></span>
-                      </span>
-                      New Offer Received
-                    </span>
-                    <span className="text-xs font-semibold text-indigo-600 bg-white px-2 py-1 rounded shadow-sm border border-indigo-100">
-                      Expires in {offer.expiresIn}
-                    </span>
-                  </div>
-                )}
-                
-                {offer.status === 'accepted' && (
-                  <div className="bg-emerald-50 px-6 py-3 border-b border-emerald-100 flex items-center text-sm font-bold text-emerald-700">
-                    <CheckCircle className="w-4 h-4 mr-2" /> Offer Accepted - Job Secured
-                  </div>
-                )}
-
-                {offer.status === 'declined' && (
-                  <div className="bg-slate-50 px-6 py-3 border-b border-slate-200 flex items-center text-sm font-bold text-slate-600">
-                    Offer Declined
-                  </div>
-                )}
-
-                <div className="p-6">
-                  <div className="flex flex-col md:flex-row justify-between gap-6 mb-6">
-                    <div>
-                      <h3 className="text-xl font-bold text-slate-900 mb-1">{offer.eventName}</h3>
-                      <p className="text-indigo-600 font-semibold mb-4">{offer.role}</p>
-                      
-                      <div className="space-y-2 text-sm text-slate-600">
-                        <p className="flex items-center"><Calendar className="w-4 h-4 mr-2 text-slate-400" /> {offer.date}</p>
-                        <p className="flex items-center"><MapPin className="w-4 h-4 mr-2 text-slate-400" /> {offer.location}</p>
+              offers.map(offer => {
+                const payment = payments.find(p => p.assignment_id === offer.assignment_id);
+                return (
+                  <div key={offer.id} className={`bg-white rounded-2xl shadow-sm border overflow-hidden transition-all duration-300 ${
+                    offer.status === 'pending' ? 'border-indigo-200 shadow-indigo-100' : 'border-slate-200'
+                  }`}>
+                    {/* Status Banner */}
+                    {offer.status === 'pending' && (
+                      <div className="bg-indigo-50 px-6 py-3 border-b border-indigo-100 flex justify-between items-center">
+                        <span className="flex items-center text-sm font-bold text-indigo-700">
+                          <span className="flex h-2.5 w-2.5 relative mr-2">
+                            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-indigo-400 opacity-75"></span>
+                            <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-indigo-500"></span>
+                          </span>
+                          New Offer Received
+                        </span>
+                        <span className="text-xs font-semibold text-indigo-600 bg-white px-2 py-1 rounded shadow-sm border border-indigo-100">
+                          Expires in {offer.expiresIn}
+                        </span>
                       </div>
-                    </div>
+                    )}
                     
-                    <div className="text-left md:text-right">
-                      <p className="text-sm text-slate-500 font-medium mb-1">Guaranteed Payout</p>
-                      <p className="text-3xl font-bold text-slate-900 flex items-center md:justify-end">
-                        <IndianRupee className="w-6 h-6 mr-1 text-slate-400" />
-                        {offer.price.toLocaleString()}
-                      </p>
+                    {offer.status === 'accepted' && (
+                      <div className="bg-emerald-50 px-6 py-3 border-b border-emerald-100 flex items-center text-sm font-bold text-emerald-700">
+                        <CheckCircle className="w-4 h-4 mr-2" /> Offer Accepted - Job Secured
+                      </div>
+                    )}
+
+                    {offer.status === 'declined' && (
+                      <div className="bg-slate-50 px-6 py-3 border-b border-slate-200 flex items-center text-sm font-bold text-slate-600">
+                        Offer Declined
+                      </div>
+                    )}
+
+                    <div className="p-6">
+                      <div className="flex flex-col md:flex-row justify-between gap-6 mb-6">
+                        <div>
+                          <h3 className="text-xl font-bold text-slate-900 mb-1">{offer.eventName}</h3>
+                          <p className="text-indigo-600 font-semibold mb-4">{offer.role}</p>
+                          
+                          <div className="space-y-2 text-sm text-slate-600">
+                            <p className="flex items-center"><Calendar className="w-4 h-4 mr-2 text-slate-400" /> {offer.date}</p>
+                            <p className="flex items-center"><MapPin className="w-4 h-4 mr-2 text-slate-400" /> {offer.location}</p>
+                          </div>
+                        </div>
+                        
+                        <div className="text-left md:text-right">
+                          <p className="text-sm text-slate-500 font-medium mb-1">Guaranteed Payout</p>
+                          <p className="text-3xl font-bold text-slate-900 flex items-center md:justify-end">
+                            <IndianRupee className="w-6 h-6 mr-1 text-slate-400" />
+                            {offer.price.toLocaleString()}
+                          </p>
+                          
+                          {/* ESCROW STATUS UI */}
+                          {payment && payment.status === 'HELD_IN_ESCROW' && (
+                            <div className="mt-4 p-3 bg-emerald-50 border border-emerald-200 rounded-lg inline-block text-left">
+                              <p className="text-xs text-emerald-700 font-bold uppercase tracking-wider mb-1">Escrow Status</p>
+                              <p className="text-sm text-emerald-800 font-bold flex items-center">
+                                <ShieldCheck className="w-4 h-4 mr-1" /> SECURED
+                              </p>
+                            </div>
+                          )}
+                          
+                          {payment && payment.status === 'RELEASED' && (
+                            <div className="mt-4 p-3 bg-blue-50 border border-blue-200 rounded-lg inline-block text-left">
+                              <p className="text-xs text-blue-700 font-bold uppercase tracking-wider mb-1">✓ PAYMENT RELEASED</p>
+                              <p className="text-sm text-blue-800 font-medium">
+                                ₹{payment.amount.toLocaleString()} has been released to you.
+                              </p>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                      
                       {offer.status === 'pending' && (
-                        <p className="text-xs text-emerald-600 font-semibold mt-2 bg-emerald-50 inline-block px-2 py-1 rounded">
-                          ✓ Funds in Escrow
-                        </p>
+                        <div className="flex gap-4 pt-4 border-t border-slate-100">
+                          <button 
+                            onClick={() => handleAction(offer.assignment_id, 'accepted')}
+                            className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white py-3 rounded-xl font-bold shadow-md shadow-indigo-200 transition-all active:scale-95"
+                          >
+                            Accept Offer
+                          </button>
+                          <button 
+                            onClick={() => handleAction(offer.assignment_id, 'declined')}
+                            className="flex-1 bg-white border-2 border-slate-200 text-slate-700 hover:bg-slate-50 hover:border-slate-300 py-3 rounded-xl font-bold transition-all"
+                          >
+                            Decline
+                          </button>
+                        </div>
                       )}
                     </div>
                   </div>
-                  
-                  {offer.status === 'pending' && (
-                    <div className="flex gap-4 pt-4 border-t border-slate-100">
-                      <button 
-                        onClick={() => handleAction(offer.assignment_id, 'accepted')}
-                        className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white py-3 rounded-xl font-bold shadow-md shadow-indigo-200 transition-all active:scale-95"
-                      >
-                        Accept Offer
-                      </button>
-                      <button 
-                        onClick={() => handleAction(offer.assignment_id, 'declined')}
-                        className="flex-1 bg-white border-2 border-slate-200 text-slate-700 hover:bg-slate-50 hover:border-slate-300 py-3 rounded-xl font-bold transition-all"
-                      >
-                        Decline
-                      </button>
-                    </div>
-                  )}
-                </div>
-              </div>
-            )))}
+                );
+              })
+            )}
           </div>
+          
+          {payments.length > 0 && (
+            <div className="mt-12 bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+              <div className="px-6 py-4 bg-slate-50 border-b border-slate-200">
+                <h2 className="font-bold text-slate-900">Payment History</h2>
+              </div>
+              <div className="divide-y divide-slate-100">
+                {payments.map(p => (
+                  <div key={p.id} className="p-6 flex justify-between items-center hover:bg-slate-50 transition-colors">
+                    <div>
+                      <p className="font-bold text-slate-900">{p.transaction_id}</p>
+                      <p className="text-xs text-slate-500 font-medium">{p.status.replace(/_/g, ' ')}</p>
+                    </div>
+                    <div className="text-right">
+                      <p className="font-bold text-slate-900 flex items-center justify-end">
+                        <IndianRupee className="w-4 h-4 mr-1 text-slate-400" />
+                        {p.amount.toLocaleString()}
+                      </p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
         </div>
 
         {/* Sidebar */}
@@ -191,13 +247,13 @@ export const WorkerDashboard = () => {
           
           <div className="bg-slate-900 text-white p-6 rounded-2xl shadow-lg relative overflow-hidden">
             <div className="absolute -right-6 -top-6 w-24 h-24 bg-indigo-500 rounded-full blur-2xl opacity-50"></div>
-            <h2 className="text-lg font-bold mb-4 relative z-10">Earnings this Month</h2>
-            <p className="text-4xl font-extrabold flex items-center relative z-10">
+            <h2 className="text-lg font-bold mb-4 relative z-10 text-slate-200 uppercase tracking-wider">Your Earnings</h2>
+            <p className="text-4xl font-extrabold flex items-center relative z-10 text-emerald-400">
               <IndianRupee className="w-8 h-8 mr-1 opacity-80" />
-              42,500
+              {totalEarnings.toLocaleString()}
             </p>
             <div className="mt-6 pt-4 border-t border-white/20 relative z-10 flex justify-between items-center">
-              <span className="text-sm text-slate-300">3 Upcoming Jobs</span>
+              <span className="text-sm text-slate-300">From Released Payments</span>
               <button className="text-sm font-bold text-indigo-300 hover:text-white flex items-center transition-colors">
                 View Ledger <ChevronRight className="w-4 h-4 ml-1" />
               </button>

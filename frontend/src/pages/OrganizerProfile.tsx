@@ -24,12 +24,10 @@ export const OrganizerProfile = () => {
 
   const handleSave = () => {
     setIsSaving(true);
-    setTimeout(() => {
-      localStorage.setItem('organizer_profile', JSON.stringify(formData));
-      setIsSaving(false);
-      setSaved(true);
-      setTimeout(() => setSaved(false), 3000);
-    }, 800);
+    localStorage.setItem('organizer_profile', JSON.stringify(formData));
+    setIsSaving(false);
+    setSaved(true);
+    setTimeout(() => setSaved(false), 3000);
   };
 
   return (

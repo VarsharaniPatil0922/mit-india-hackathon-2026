@@ -1,63 +1,57 @@
-import React from 'react';
-import { Link } from 'react-router-dom';
+import React, { useState, useEffect } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
 import { PlusCircle, Calendar, MapPin, Search, Filter } from 'lucide-react';
+import { useAuth } from '../context/AuthContext';
+import { API_BASE } from '../services/api';
 
 export const OrganizerEvents = () => {
-  // Mock data for upcoming events
-  const upcomingEvents = [
-    {
-      id: 'e1',
-      title: 'Grand Wedding Reception',
-      type: 'Wedding',
-      date: 'June 18, 2026',
-      time: '18:00 - 23:00',
-      location: 'Hyderabad, TS',
-      budget: 50000,
-      spent: 42500,
-      crewCompletion: 90,
-      status: 'Action Required',
-      statusColor: 'text-amber-700 bg-amber-50 border-amber-200'
-    },
-    {
-      id: 'e2',
-      title: 'Tech Startup Launch',
-      type: 'Corporate',
-      date: 'July 05, 2026',
-      time: '09:00 - 17:00',
-      location: 'Bangalore, KA',
-      budget: 120000,
-      spent: 120000,
-      crewCompletion: 100,
-      status: 'Ready',
-      statusColor: 'text-emerald-700 bg-emerald-50 border-emerald-200'
-    },
-    {
-      id: 'e3',
-      title: 'Annual Music Festival',
-      type: 'Concert',
-      date: 'August 12, 2026',
-      time: '14:00 - 02:00',
-      location: 'Pune, MH',
-      budget: 85000,
-      spent: 30000,
-      crewCompletion: 45,
-      status: 'Matching',
-      statusColor: 'text-indigo-700 bg-indigo-50 border-indigo-200'
-    },
-    {
-      id: 'e4',
-      title: 'Medical Conference 2026',
-      type: 'Conference',
-      date: 'September 20, 2026',
-      time: '08:00 - 18:00',
-      location: 'Mumbai, MH',
-      budget: 200000,
-      spent: 15000,
-      crewCompletion: 10,
-      status: 'Planning',
-      statusColor: 'text-slate-700 bg-slate-100 border-slate-200'
-    }
-  ];
+  const navigate = useNavigate();
+  const { user } = useAuth();
+  const [events, setEvents] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    const fetchEvents = async () => {
+      try {
+        const response = await fetch(`${API_BASE}/events`, {
+          headers: { 'Authorization': `Bearer ${user?.token}` }
+        });
+        if (!response.ok) throw new Error('Failed to fetch events');
+        const data = await response.json();
+        
+        const mapped = data.map((e: any) => {
+           return {
+              id: String(e.event_id),
+              title: e.event_type + " @ " + e.location,
+              type: e.event_type,
+              date: e.event_date,
+              time: 'TBA',
+              location: e.location,
+              budget: e.budget,
+              spent: 0,
+              crewCompletion: e.status === "READY" ? 100 : 0,
+              status: e.status,
+              statusColor: e.status === "READY" ? 'text-emerald-700 bg-emerald-50 border-emerald-200' : 'text-amber-700 bg-amber-50 border-amber-200'
+           }
+        });
+        setEvents(mapped);
+      } catch (err: any) {
+        setError(err.message);
+      } finally {
+        setLoading(false);
+      }
+    };
+    if (user?.token) fetchEvents();
+  }, [user]);
+
+  if (loading) {
+    return <div className="p-8 text-center text-slate-500">Loading events...</div>;
+  }
+  
+  if (error) {
+    return <div className="p-8 text-center text-red-500">Error: {error}</div>;
+  }
 
   return (
     <div className="space-y-8 animate-in fade-in duration-300">
@@ -94,7 +88,12 @@ export const OrganizerEvents = () => {
 
       {/* Events Grid */}
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-        {upcomingEvents.map(event => (
+        {events.length === 0 && (
+          <div className="col-span-full p-12 text-center text-slate-500">
+             No events yet. Create one!
+          </div>
+        )}
+        {events.map(event => (
           <div key={event.id} className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden hover:border-indigo-200 hover:shadow-md transition-all group">
             <div className="p-6">
               <div className="flex justify-between items-start mb-4">

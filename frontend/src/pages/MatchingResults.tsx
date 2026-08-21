@@ -111,13 +111,14 @@ export const MatchingResults = () => {
     if (!user || !user.token) return;
     
     setSimulatingNoShow(true);
-    setCascadeSteps(["STEP 1: Worker becomes unavailable"]);
-    
-    setTimeout(() => setCascadeSteps(prev => [...prev, "STEP 2: Worker removed from feasible pool"]), 600);
-    setTimeout(() => setCascadeSteps(prev => [...prev, "STEP 3: Eligibility constraints recalculated"]), 1200);
-    setTimeout(() => setCascadeSteps(prev => [...prev, "STEP 4: Candidates rescored"]), 1800);
-    setTimeout(() => setCascadeSteps(prev => [...prev, "STEP 5: Backup/replacement selected"]), 2400);
-    setTimeout(() => setCascadeSteps(prev => [...prev, "STEP 6: New crew generated"]), 3000);
+    setCascadeSteps([
+      "STEP 1: Worker becomes unavailable",
+      "STEP 2: Worker removed from feasible pool",
+      "STEP 3: Eligibility constraints recalculated",
+      "STEP 4: Candidates rescored",
+      "STEP 5: Backup/replacement selected",
+      "STEP 6: New crew generated"
+    ]);
 
     try {
       const response = await fetch('http://localhost:8000/api/crew/replace-worker', {
@@ -132,34 +133,30 @@ export const MatchingResults = () => {
       if (response.ok) {
         const data = await response.json();
         
-        setTimeout(() => {
-            setCascadeResult(data);
-            showToast("Cascade Re-optimization Complete");
-            setSimulatingNoShow(false);
-            
-            // Apply new state
-            if (data.new_crew) {
-              const preSelected: Record<string, string[]> = {};
-              data.new_crew.forEach((c: any) => {
-                if (!preSelected[String(c.role_id)]) {
-                  preSelected[String(c.role_id)] = [];
-                }
-                preSelected[String(c.role_id)].push(String(c.worker_id));
-              });
-              setSelectedWorkers(preSelected);
+        setCascadeResult(data);
+        showToast("Cascade Re-optimization Complete");
+        setSimulatingNoShow(false);
+        
+        // Apply new state
+        if (data.new_crew) {
+          const preSelected: Record<string, string[]> = {};
+          data.new_crew.forEach((c: any) => {
+            if (!preSelected[String(c.role_id)]) {
+              preSelected[String(c.role_id)] = [];
             }
-            
-            // Refetch original to get updated candidate pools (or just keep the old candidates for UI display)
-            // Let's refetch to get clean state
-            fetch(`http://localhost:8000/api/crew/optimize/${eventId}`, {
-                headers: { 'Authorization': `Bearer ${user.token}` }
-            }).then(r => r.json()).then(newData => {
-                if (newData.candidate_pools) {
-                    setResults(newData.candidate_pools);
-                }
-            });
-            
-        }, 3600);
+            preSelected[String(c.role_id)].push(String(c.worker_id));
+          });
+          setSelectedWorkers(preSelected);
+        }
+        
+        // Refetch original to get updated candidate pools
+        fetch(`http://localhost:8000/api/crew/optimize/${eventId}`, {
+            headers: { 'Authorization': `Bearer ${user.token}` }
+        }).then(r => r.json()).then(newData => {
+            if (newData.candidate_pools) {
+                setResults(newData.candidate_pools);
+            }
+        });
       } else {
         alert("Simulation failed");
         setSimulatingNoShow(false);

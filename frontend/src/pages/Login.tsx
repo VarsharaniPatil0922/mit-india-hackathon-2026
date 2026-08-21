@@ -34,14 +34,12 @@ export const Login = () => {
       
       setSuccess(isLogin ? 'Login successful! Redirecting...' : 'Registration successful! Redirecting...');
       
-      setTimeout(() => {
-        // Navigate based on user type
-        if (data.user_type === 'organizer') {
-          navigate('/organizer/dashboard');
-        } else {
-          navigate('/worker/dashboard');
-        }
-      }, 500);
+      // Navigate based on user type
+      if (data.user_type === 'organizer') {
+        navigate('/organizer/dashboard');
+      } else {
+        navigate('/worker/dashboard');
+      }
       
     } catch (err: any) {
       setError(err.message);

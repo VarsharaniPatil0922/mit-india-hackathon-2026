@@ -156,6 +156,75 @@ def get_organizer_events(db: Session = Depends(get_db), current_user: models.Use
         
     return results
 
+@app.get("/api/organizer/dashboard")
+def get_organizer_dashboard_stats(db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_user)):
+    if current_user.user_type != 'organizer':
+        raise HTTPException(status_code=403, detail="Only organizers can access this")
+        
+    org = db.query(models.Organizer).filter(models.Organizer.user_id == current_user.id).first()
+    if not org:
+        raise HTTPException(status_code=404, detail="Organizer not found")
+        
+    events = db.query(models.Event).filter(models.Event.organizer_id == org.id).all()
+    
+    total_events = len(events)
+    active_events = 0
+    completed_events = 0
+    total_workers_hired = 0
+    total_budget_allocated = 0
+    total_budget_spent = 0
+    
+    recent_events = []
+    
+    for event in events:
+        if event.status in ["MATCHING", "READY"]:
+            active_events += 1
+        else:
+            completed_events += 1
+            
+        total_budget_allocated += event.budget
+        
+        assignments = db.query(models.CrewAssignment).filter(
+            models.CrewAssignment.event_id == event.id,
+            models.CrewAssignment.status.in_(["confirmed", "pending"])
+        ).all()
+        
+        spent = 0
+        crew_completion_count = 0
+        total_required_count = sum(r.quantity_needed for r in event.roles)
+        
+        for a in assignments:
+            spent += a.price_agreed
+            if a.status == "confirmed":
+                total_workers_hired += 1
+            crew_completion_count += 1
+                
+        total_budget_spent += spent
+        
+        recent_events.append({
+            "id": str(event.id),
+            "title": event.event_type + " @ " + event.location,
+            "type": event.event_type,
+            "date": event.date,
+            "location": event.location,
+            "budget": event.budget,
+            "spent": spent,
+            "crewCompletion": int((crew_completion_count / total_required_count * 100)) if total_required_count > 0 else 0,
+            "status": "Ready" if crew_completion_count == total_required_count else "Action Required",
+            "statusColor": 'text-emerald-700 bg-emerald-50 border-emerald-200' if crew_completion_count == total_required_count else 'text-amber-700 bg-amber-50 border-amber-200'
+        })
+        
+    recent_events.sort(key=lambda x: x["date"])
+    
+    return {
+        "total_events": total_events,
+        "active_events": active_events,
+        "completed_events": completed_events,
+        "total_workers_hired": total_workers_hired,
+        "budget_utilization": int((total_budget_spent / total_budget_allocated * 100)) if total_budget_allocated > 0 else 0,
+        "recent_events": recent_events[:5]
+    }
+
 @app.get("/api/events/{event_id}")
 def get_event(event_id: int, db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_user)):
     if current_user.user_type != 'organizer':
@@ -506,9 +575,9 @@ def get_worker_dashboard(db: Session = Depends(get_db), current_user: models.Use
         offers.append({
             "id": str(a.id),
             "assignment_id": a.id,
-            "eventName": a.event.title,
+            "eventName": f"{a.event.event_type} @ {a.event.location}",
             "role": a.role.role_name,
-            "date": f"{a.event.event_date} • {a.event.start_time}",
+            "date": f"{a.event.date} • {a.event.start_time}",
             "location": a.event.location,
             "price": a.price_agreed,
             "status": a.status,
@@ -669,6 +738,203 @@ def filter_workers(
         })
         
     return response
+
+import uuid
+from datetime import datetime
+
+@app.post("/api/payments/create", response_model=schemas.PaymentResponse)
+def create_payment(req: schemas.PaymentCreate, db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_user)):
+    if current_user.user_type != 'organizer':
+        raise HTTPException(status_code=403, detail="Only organizers can create payments")
+        
+    org = db.query(models.Organizer).filter(models.Organizer.user_id == current_user.id).first()
+    assignment = db.query(models.CrewAssignment).filter(models.CrewAssignment.id == req.assignment_id).first()
+    
+    if not assignment:
+        raise HTTPException(status_code=404, detail="Assignment not found")
+        
+    event = db.query(models.Event).filter(models.Event.id == assignment.event_id).first()
+    if event.organizer_id != org.id:
+        raise HTTPException(status_code=403, detail="Not authorized to access this event")
+        
+    # Check if payment already exists
+    existing = db.query(models.Payment).filter(models.Payment.assignment_id == req.assignment_id).first()
+    if existing:
+        raise HTTPException(status_code=400, detail="Payment for this assignment already exists")
+
+    tx_id = f"CC-DEMO-{uuid.uuid4().hex[:8].upper()}"
+    
+    payment = models.Payment(
+        event_id=event.id,
+        organizer_id=org.id,
+        worker_id=assignment.worker_id,
+        assignment_id=assignment.id,
+        amount=assignment.price_agreed,
+        currency="INR",
+        status="PENDING",
+        payment_method="DEMO_ESCROW",
+        transaction_id=tx_id
+    )
+    db.add(payment)
+    db.commit()
+    db.refresh(payment)
+    
+    # Notification for organizer
+    notif = models.Notification(
+        user_id=current_user.id,
+        event_id=event.id,
+        message=f"Payment of ₹{payment.amount} created for {assignment.role.role_name}."
+    )
+    db.add(notif)
+    db.commit()
+    
+    return payment
+
+@app.post("/api/payments/{payment_id}/pay", response_model=schemas.PaymentResponse)
+def pay_escrow(payment_id: int, db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_user)):
+    if current_user.user_type != 'organizer':
+        raise HTTPException(status_code=403, detail="Only organizers can fund escrow")
+        
+    org = db.query(models.Organizer).filter(models.Organizer.user_id == current_user.id).first()
+    payment = db.query(models.Payment).filter(models.Payment.id == payment_id).first()
+    
+    if not payment:
+        raise HTTPException(status_code=404, detail="Payment not found")
+        
+    if payment.organizer_id != org.id:
+        raise HTTPException(status_code=403, detail="Not authorized to fund this payment")
+        
+    if payment.status != "PENDING":
+        raise HTTPException(status_code=400, detail="Only PENDING payments can be paid")
+        
+    payment.status = "HELD_IN_ESCROW"
+    payment.paid_at = datetime.utcnow()
+    
+    # Notifications
+    org_msg = f"₹{payment.amount} has been placed into CrewConnect escrow."
+    db.add(models.Notification(user_id=current_user.id, event_id=payment.event_id, message=org_msg))
+    
+    worker = db.query(models.Worker).filter(models.Worker.id == payment.worker_id).first()
+    worker_msg = f"₹{payment.amount} is secured in escrow for your event."
+    db.add(models.Notification(user_id=worker.user_id, event_id=payment.event_id, message=worker_msg))
+    
+    db.commit()
+    db.refresh(payment)
+    return payment
+
+@app.post("/api/payments/{payment_id}/release", response_model=schemas.PaymentResponse)
+def release_escrow(payment_id: int, db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_user)):
+    if current_user.user_type != 'organizer':
+        raise HTTPException(status_code=403, detail="Only organizers can release escrow")
+        
+    org = db.query(models.Organizer).filter(models.Organizer.user_id == current_user.id).first()
+    payment = db.query(models.Payment).filter(models.Payment.id == payment_id).first()
+    
+    if not payment:
+        raise HTTPException(status_code=404, detail="Payment not found")
+        
+    if payment.organizer_id != org.id:
+        raise HTTPException(status_code=403, detail="Not authorized to release this payment")
+        
+    if payment.status != "HELD_IN_ESCROW":
+        raise HTTPException(status_code=400, detail="Only HELD_IN_ESCROW payments can be released")
+        
+    payment.status = "RELEASED"
+    payment.released_at = datetime.utcnow()
+    
+    worker = db.query(models.Worker).filter(models.Worker.id == payment.worker_id).first()
+    worker_msg = f"₹{payment.amount} payment has been released."
+    db.add(models.Notification(user_id=worker.user_id, event_id=payment.event_id, message=worker_msg))
+    
+    db.commit()
+    db.refresh(payment)
+    return payment
+
+@app.post("/api/payments/{payment_id}/refund", response_model=schemas.PaymentResponse)
+def refund_escrow(payment_id: int, db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_user)):
+    if current_user.user_type != 'organizer':
+        raise HTTPException(status_code=403, detail="Only organizers can refund escrow")
+        
+    org = db.query(models.Organizer).filter(models.Organizer.user_id == current_user.id).first()
+    payment = db.query(models.Payment).filter(models.Payment.id == payment_id).first()
+    
+    if not payment:
+        raise HTTPException(status_code=404, detail="Payment not found")
+        
+    if payment.organizer_id != org.id:
+        raise HTTPException(status_code=403, detail="Not authorized to refund this payment")
+        
+    if payment.status != "HELD_IN_ESCROW":
+        raise HTTPException(status_code=400, detail="Only HELD_IN_ESCROW payments can be refunded")
+        
+    payment.status = "REFUNDED"
+    payment.refunded_at = datetime.utcnow()
+    
+    worker = db.query(models.Worker).filter(models.Worker.id == payment.worker_id).first()
+    worker_msg = f"₹{payment.amount} payment has been refunded to the organizer."
+    db.add(models.Notification(user_id=worker.user_id, event_id=payment.event_id, message=worker_msg))
+    
+    db.commit()
+    db.refresh(payment)
+    return payment
+
+@app.get("/api/payments/{payment_id}", response_model=schemas.PaymentResponse)
+def get_payment(payment_id: int, db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_user)):
+    payment = db.query(models.Payment).filter(models.Payment.id == payment_id).first()
+    if not payment:
+        raise HTTPException(status_code=404, detail="Payment not found")
+        
+    if current_user.user_type == 'organizer':
+        org = db.query(models.Organizer).filter(models.Organizer.user_id == current_user.id).first()
+        if payment.organizer_id != org.id:
+            raise HTTPException(status_code=403, detail="Not authorized to access this payment")
+    elif current_user.user_type == 'worker':
+        worker = db.query(models.Worker).filter(models.Worker.user_id == current_user.id).first()
+        if payment.worker_id != worker.id:
+            raise HTTPException(status_code=403, detail="Not authorized to access this payment")
+            
+    return payment
+
+@app.get("/api/events/{event_id}/payments", response_model=List[schemas.PaymentResponse])
+def get_event_payments(event_id: int, db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_user)):
+    if current_user.user_type != 'organizer':
+        raise HTTPException(status_code=403, detail="Only organizers can access event payments")
+        
+    org = db.query(models.Organizer).filter(models.Organizer.user_id == current_user.id).first()
+    event = db.query(models.Event).filter(models.Event.id == event_id).first()
+    
+    if not event:
+        raise HTTPException(status_code=404, detail="Event not found")
+        
+    if event.organizer_id != org.id:
+        raise HTTPException(status_code=403, detail="Not authorized to access this event")
+        
+    payments = db.query(models.Payment).filter(models.Payment.event_id == event_id).all()
+    return payments
+
+@app.get("/api/worker/payments", response_model=List[schemas.PaymentResponse])
+def get_worker_payments(db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_user)):
+    if current_user.user_type != 'worker':
+        raise HTTPException(status_code=403, detail="Only workers can access this endpoint")
+        
+    worker = db.query(models.Worker).filter(models.Worker.user_id == current_user.id).first()
+    if not worker:
+        return []
+        
+    payments = db.query(models.Payment).filter(models.Payment.worker_id == worker.id).all()
+    return payments
+
+@app.get("/api/organizer/payments", response_model=List[schemas.PaymentResponse])
+def get_organizer_payments(db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_user)):
+    if current_user.user_type != 'organizer':
+        raise HTTPException(status_code=403, detail="Only organizers can access this endpoint")
+        
+    org = db.query(models.Organizer).filter(models.Organizer.user_id == current_user.id).first()
+    if not org:
+        return []
+        
+    payments = db.query(models.Payment).filter(models.Payment.organizer_id == org.id).all()
+    return payments
 
 @app.get("/")
 def read_root():

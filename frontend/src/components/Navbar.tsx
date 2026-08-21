@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { Users, LogOut, Bell, User as UserIcon } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
+import { API_BASE } from '../services/api';
 
 export const Navbar = () => {
   const { user, logout } = useAuth();
@@ -11,7 +12,7 @@ export const Navbar = () => {
 
   useEffect(() => {
     if (user && user.token) {
-      fetch('http://localhost:8000/api/notifications', {
+      fetch(`${API_BASE}/notifications`, {
         headers: { 'Authorization': `Bearer ${user.token}` }
       })
       .then(res => res.json())

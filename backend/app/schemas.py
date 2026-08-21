@@ -82,3 +82,25 @@ class NotificationResponse(BaseModel):
     
     class Config:
         from_attributes = True
+
+class PaymentCreate(BaseModel):
+    assignment_id: int
+
+class PaymentResponse(BaseModel):
+    id: int
+    event_id: int
+    organizer_id: int
+    worker_id: int
+    assignment_id: Optional[int] = None
+    amount: int
+    currency: str
+    status: str
+    payment_method: str
+    transaction_id: str
+    created_at: datetime
+    paid_at: Optional[datetime] = None
+    released_at: Optional[datetime] = None
+    refunded_at: Optional[datetime] = None
+    
+    class Config:
+        from_attributes = True

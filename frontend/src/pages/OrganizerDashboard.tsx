@@ -1,45 +1,51 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { PlusCircle, Calendar, MapPin, Users, TrendingUp, Clock, CheckCircle } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
+import { API_BASE } from '../services/api';
 
 export const OrganizerDashboard = () => {
   const { user } = useAuth();
   
-  // Mock data for demo
+  const [data, setData] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  
+  useEffect(() => {
+    const fetchDashboard = async () => {
+      try {
+        const response = await fetch(`${API_BASE}/organizer/dashboard`, {
+          headers: { 'Authorization': `Bearer ${user?.token}` }
+        });
+        if (!response.ok) throw new Error('Failed to fetch dashboard data');
+        const json = await response.json();
+        setData(json);
+      } catch (err: any) {
+        setError(err.message);
+      } finally {
+        setLoading(false);
+      }
+    };
+    
+    if (user?.token) fetchDashboard();
+  }, [user]);
+
+  if (loading) {
+    return <div className="p-8 text-center text-slate-500">Loading dashboard...</div>;
+  }
+  
+  if (error) {
+    return <div className="p-8 text-center text-red-500">Error: {error}</div>;
+  }
+
   const stats = [
-    { label: 'Active Events', value: '3', icon: Calendar, color: 'text-indigo-600', bg: 'bg-indigo-50' },
-    { label: 'Confirmed Crew', value: '24', icon: CheckCircle, color: 'text-emerald-600', bg: 'bg-emerald-50' },
-    { label: 'Pending Responses', value: '5', icon: Clock, color: 'text-amber-600', bg: 'bg-amber-50' },
-    { label: 'Budget Utilization', value: '78%', icon: TrendingUp, color: 'text-blue-600', bg: 'bg-blue-50' },
+    { label: 'Active Events', value: data?.active_events || '0', icon: Calendar, color: 'text-indigo-600', bg: 'bg-indigo-50' },
+    { label: 'Confirmed Crew', value: data?.total_workers_hired || '0', icon: CheckCircle, color: 'text-emerald-600', bg: 'bg-emerald-50' },
+    { label: 'Pending Responses', value: data?.completed_events || '0', icon: Clock, color: 'text-amber-600', bg: 'bg-amber-50' },
+    { label: 'Budget Utilization', value: `${data?.budget_utilization || 0}%`, icon: TrendingUp, color: 'text-blue-600', bg: 'bg-blue-50' },
   ];
 
-  const mockEvents = [
-    {
-      id: 'e1',
-      title: 'Grand Wedding Reception',
-      type: 'Wedding',
-      date: 'June 18, 2026',
-      location: 'Hyderabad, TS',
-      budget: 50000,
-      spent: 42500,
-      crewCompletion: 90,
-      status: 'Action Required',
-      statusColor: 'text-amber-700 bg-amber-50 border-amber-200'
-    },
-    {
-      id: 'e2',
-      title: 'Tech Startup Launch',
-      type: 'Corporate',
-      date: 'July 05, 2026',
-      location: 'Bangalore, KA',
-      budget: 120000,
-      spent: 120000,
-      crewCompletion: 100,
-      status: 'Ready',
-      statusColor: 'text-emerald-700 bg-emerald-50 border-emerald-200'
-    }
-  ];
+  const recentEvents = data?.recent_events || [];
 
   return (
     <div className="space-y-8">
@@ -86,7 +92,9 @@ export const OrganizerDashboard = () => {
         </div>
         
         <div className="divide-y divide-slate-100">
-          {mockEvents.map(event => (
+          {recentEvents.length === 0 ? (
+             <div className="p-8 text-center text-slate-500">No events yet. Create one!</div>
+          ) : recentEvents.map((event: any) => (
             <div key={event.id} className="p-6 hover:bg-slate-50 transition-colors group flex flex-col md:flex-row gap-6 items-center">
               
               {/* Info */}

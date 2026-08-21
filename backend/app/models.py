@@ -110,3 +110,28 @@ class Notification(Base):
     message = Column(Text)
     status = Column(String, default="unread") # unread, read
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+class Payment(Base):
+    __tablename__ = "payments"
+
+    id = Column(Integer, primary_key=True, index=True)
+    event_id = Column(Integer, ForeignKey("events.id"))
+    organizer_id = Column(Integer, ForeignKey("organizers.id"))
+    worker_id = Column(Integer, ForeignKey("workers.id"))
+    assignment_id = Column(Integer, ForeignKey("crew_assignments.id"), nullable=True)
+    amount = Column(Integer)
+    currency = Column(String, default="INR")
+    status = Column(String, default="PENDING") # PENDING, PAID, HELD_IN_ESCROW, RELEASED, CANCELLED, REFUNDED
+    payment_method = Column(String, default="DEMO_ESCROW")
+    transaction_id = Column(String, unique=True, index=True)
+    
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    paid_at = Column(DateTime(timezone=True), nullable=True)
+    released_at = Column(DateTime(timezone=True), nullable=True)
+    refunded_at = Column(DateTime(timezone=True), nullable=True)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    event = relationship("Event")
+    organizer = relationship("Organizer")
+    worker = relationship("Worker")
+    assignment = relationship("CrewAssignment")
