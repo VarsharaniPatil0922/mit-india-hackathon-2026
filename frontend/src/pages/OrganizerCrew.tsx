@@ -29,7 +29,7 @@ const SKILLS_LIST = [
 
 export const OrganizerCrew = () => {
   const { user } = useAuth();
-  const token = "demo-jwt-token-12345"; // Using mock token for now since Auth is mocked
+  const token = user?.token || "demo-jwt-token-12345";
 
   const [searchTerm, setSearchTerm] = useState('');
   const [showFilters, setShowFilters] = useState(false);

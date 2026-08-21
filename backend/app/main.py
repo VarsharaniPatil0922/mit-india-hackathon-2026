@@ -298,6 +298,10 @@ def run_optimization_pipeline(event_id: int, db: Session):
 
 @app.get("/api/crew/optimize/{event_id}")
 def optimize_crew(event_id: int, db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_user)):
+    org = db.query(models.Organizer).filter(models.Organizer.user_id == current_user.id).first()
+    event = db.query(models.Event).filter(models.Event.id == event_id).first()
+    if not org or not event or event.organizer_id != org.id:
+        raise HTTPException(status_code=403, detail="Not authorized to access this event")
     return run_optimization_pipeline(event_id, db)
 
 class ReplaceWorkerRequest(BaseModel):
@@ -306,11 +310,15 @@ class ReplaceWorkerRequest(BaseModel):
 
 @app.post("/api/crew/replace-worker")
 def replace_worker(req: ReplaceWorkerRequest, db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_user)):
+    org = db.query(models.Organizer).filter(models.Organizer.user_id == current_user.id).first()
     event = db.query(models.Event).filter(models.Event.id == req.event_id).first()
     worker = db.query(models.Worker).filter(models.Worker.id == req.worker_id).first()
     
     if not event or not worker:
         raise HTTPException(status_code=404, detail="Event or worker not found")
+        
+    if not org or event.organizer_id != org.id:
+        raise HTTPException(status_code=403, detail="Not authorized to access this event")
         
     assignment = db.query(models.CrewAssignment).filter(
         models.CrewAssignment.event_id == req.event_id,
@@ -406,8 +414,14 @@ def replace_worker(req: ReplaceWorkerRequest, db: Session = Depends(get_db), cur
 
 @app.post("/api/crew/confirm")
 def confirm_crew(assignments: List[schemas.CrewAssignmentCreate], db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_user)):
+    org = db.query(models.Organizer).filter(models.Organizer.user_id == current_user.id).first()
+    
     # Update recommended assignments to pending
     for assign in assignments:
+        event = db.query(models.Event).filter(models.Event.id == assign.event_id).first()
+        if not event or not org or event.organizer_id != org.id:
+            raise HTTPException(status_code=403, detail="Not authorized to modify this event")
+            
         existing_assign = db.query(models.CrewAssignment).filter(
             models.CrewAssignment.event_id == assign.event_id,
             models.CrewAssignment.worker_id == assign.worker_id,
@@ -435,9 +449,13 @@ def confirm_crew(assignments: List[schemas.CrewAssignmentCreate], db: Session = 
 
 @app.get("/api/crew/{event_id}")
 def get_crew_for_event(event_id: int, db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_user)):
+    org = db.query(models.Organizer).filter(models.Organizer.user_id == current_user.id).first()
     event = db.query(models.Event).filter(models.Event.id == event_id).first()
     if not event:
         raise HTTPException(status_code=404, detail="Event not found")
+        
+    if not org or event.organizer_id != org.id:
+        raise HTTPException(status_code=403, detail="Not authorized to access this event")
         
     assignments = db.query(models.CrewAssignment).filter(
         models.CrewAssignment.event_id == event_id,
@@ -520,11 +538,20 @@ def worker_respond(req: WorkerResponse, db: Session = Depends(get_db), current_u
         
     if req.action == "accepted":
         assignment.status = "confirmed"
+        msg = f"Worker {worker.name} accepted your request for {assignment.role.role_name}."
     elif req.action == "declined":
         assignment.status = "declined"
+        msg = f"Worker {worker.name} declined your request for {assignment.role.role_name}."
     else:
         raise HTTPException(status_code=400, detail="Invalid action")
         
+    # Notify the organizer
+    notif = models.Notification(
+        user_id=assignment.event.organizer.user_id,
+        event_id=assignment.event_id,
+        message=msg
+    )
+    db.add(notif)
     db.commit()
     return {"status": "success", "new_status": assignment.status}
 

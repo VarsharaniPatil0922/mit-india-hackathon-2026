@@ -2,18 +2,6 @@ export const API_BASE = 'http://localhost:8000/api';
 
 export const authApi = {
   login: async (email: string, password: string, type: 'organizer' | 'worker') => {
-    // Mock login with a delay for frontend MVP/demo mode
-    return new Promise((resolve) => {
-      setTimeout(() => {
-        resolve({
-          access_token: 'demo-jwt-token-12345',
-          user_type: type,
-        });
-      }, 700);
-    });
-
-    // Original real fetch code for later:
-    /*
     const response = await fetch(`${API_BASE}/auth/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -25,22 +13,9 @@ export const authApi = {
       throw new Error(data.detail || 'Authentication failed');
     }
     return data;
-    */
   },
   
   register: async (email: string, password: string, type: 'organizer' | 'worker') => {
-    // Mock register with a delay for frontend MVP/demo mode
-    return new Promise((resolve) => {
-      setTimeout(() => {
-        resolve({
-          access_token: 'demo-jwt-token-12345',
-          user_type: type,
-        });
-      }, 700);
-    });
-
-    // Original real fetch code for later:
-    /*
     const response = await fetch(`${API_BASE}/auth/register`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -52,7 +27,6 @@ export const authApi = {
       throw new Error(data.detail || 'Authentication failed');
     }
     return data;
-    */
   }
 };
 
