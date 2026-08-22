@@ -16,7 +16,7 @@ app = FastAPI(title="CrewConnect API")
 # Setup CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"], # For hackathon MVP
+    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"], # For hackathon MVP
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

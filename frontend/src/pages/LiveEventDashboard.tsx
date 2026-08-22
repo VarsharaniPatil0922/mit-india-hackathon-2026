@@ -4,6 +4,7 @@ import {
   CheckCircle, Clock, IndianRupee, ShieldCheck, MapPin, Star, User
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
+import { API_BASE } from '../services/api';
 
 export const LiveEventDashboard = () => {
   const { eventId } = useParams();
@@ -15,7 +16,7 @@ export const LiveEventDashboard = () => {
     const fetchData = async () => {
       if (!user || !user.token) return;
       try {
-        const response = await fetch(`http://localhost:8000/api/crew/${eventId}`, {
+        const response = await fetch(`${API_BASE}/crew/${eventId}`, {
           headers: { 'Authorization': `Bearer ${user.token}` }
         });
         if (response.ok) {

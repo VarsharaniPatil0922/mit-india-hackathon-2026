@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Bell, MapPin, IndianRupee, Star, Calendar, CheckCircle, Clock, ChevronRight, CheckCircle2, ShieldCheck } from 'lucide-react';
-import { paymentsApi } from '../services/api';
+import { paymentsApi, API_BASE } from '../services/api';
+import { useAuth } from '../context/AuthContext';
 
 export const WorkerDashboard = () => {
   const [offers, setOffers] = useState<any[]>([]);
@@ -8,22 +10,33 @@ export const WorkerDashboard = () => {
   const [loading, setLoading] = useState(true);
   const [toastMsg, setToastMsg] = useState("");
 
+  const { logout } = useAuth();
+  const navigate = useNavigate();
+
   const fetchOffersAndPayments = async () => {
     try {
-      const res = await fetch("http://localhost:8000/api/worker/dashboard", {
+      const token = localStorage.getItem("crew_user") ? JSON.parse(localStorage.getItem("crew_user")!).token : null;
+      const res = await fetch(`${API_BASE}/worker/dashboard`, {
         headers: {
-          Authorization: `Bearer ${localStorage.getItem("token")}`,
+          Authorization: `Bearer ${token}`,
         },
       });
-      if (res.ok) {
-        const data = await res.json();
-        setOffers(data.offers);
-      } else {
-        showToast("Failed to fetch offers", true);
+      if (res.status === 401) {
+        logout();
+        navigate('/');
+        return;
       }
+      if (!res.ok) {
+        const errText = await res.text();
+        console.error("API Error Response:", errText);
+        showToast(`Failed to fetch offers: HTTP ${res.status} - ${errText}`, true);
+        return;
+      }
+      const data = await res.json();
+      setOffers(data.offers);
 
       try {
-        const pRes = await paymentsApi.getWorkerPayments(localStorage.getItem("token")!);
+        const pRes = await paymentsApi.getWorkerPayments(token);
         setPayments(pRes);
       } catch (err) {
         console.error("Failed to fetch payments", err);
@@ -53,7 +66,7 @@ export const WorkerDashboard = () => {
 
   const handleAction = async (assignmentId: number, action: 'accepted' | 'declined') => {
     try {
-      const res = await fetch("http://localhost:8000/api/worker/respond", {
+      const res = await fetch(`${API_BASE}/worker/respond`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

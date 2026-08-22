@@ -6,7 +6,7 @@ import { API_BASE } from '../services/api';
 
 export const OrganizerEvents = () => {
   const navigate = useNavigate();
-  const { user } = useAuth();
+  const { user, logout } = useAuth();
   const [events, setEvents] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -17,7 +17,16 @@ export const OrganizerEvents = () => {
         const response = await fetch(`${API_BASE}/events`, {
           headers: { 'Authorization': `Bearer ${user?.token}` }
         });
-        if (!response.ok) throw new Error('Failed to fetch events');
+        if (response.status === 401) {
+          logout();
+          navigate('/');
+          return;
+        }
+        if (!response.ok) {
+          const errorBody = await response.text();
+          console.error('API Error Response:', errorBody);
+          throw new Error(`Failed to fetch events: HTTP ${response.status} ${response.statusText} - ${errorBody}`);
+        }
         const data = await response.json();
         
         const mapped = data.map((e: any) => {

@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { CheckCircle2, ShieldCheck, IndianRupee, CreditCard, Lock, ArrowRight, User } from 'lucide-react';
-import { paymentsApi } from '../services/api';
+import { paymentsApi, API_BASE } from '../services/api';
 
 export const CrewSummary = () => {
   const { eventId } = useParams();
@@ -17,7 +17,7 @@ export const CrewSummary = () => {
   const fetchCrewAndPayments = async () => {
     if (!user || !user.token) return;
     try {
-      const response = await fetch(`http://localhost:8000/api/crew/${eventId}`, {
+      const response = await fetch(`${API_BASE}/crew/${eventId}`, {
         headers: {
           'Authorization': `Bearer ${user.token}`
         }

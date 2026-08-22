@@ -3,8 +3,8 @@ from sqlalchemy.orm import declarative_base
 from sqlalchemy.orm import sessionmaker
 import os
 
-# Use SQLite for local MVP
-SQLALCHEMY_DATABASE_URL = "sqlite:///./crewforge.db"
+# Use SQLite for local MVP, configurable via env
+SQLALCHEMY_DATABASE_URL = os.environ.get("DATABASE_URL", "sqlite:///./crewforge.db")
 
 # connect_args is needed only for SQLite
 engine = create_engine(SQLALCHEMY_DATABASE_URL, connect_args={"check_same_thread": False})

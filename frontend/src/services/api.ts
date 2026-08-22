@@ -1,30 +1,60 @@
-export const API_BASE = 'http://localhost:8000/api';
+export const API_BASE = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000/api';
 
 export const authApi = {
   login: async (email: string, password: string, type: 'organizer' | 'worker') => {
-    const response = await fetch(`${API_BASE}/auth/login`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, password, user_type: type })
-    });
+    let response;
+    try {
+      response = await fetch(`${API_BASE}/auth/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password, user_type: type })
+      });
+    } catch (err: any) {
+      throw new Error(`Cannot connect to backend API at ${API_BASE}. Make sure the server is running.`);
+    }
     
-    const data = await response.json();
+    let data;
+    try {
+      data = await response.json();
+    } catch (e) {
+      throw new Error(`Invalid JSON response from server (Status ${response.status})`);
+    }
+
     if (!response.ok) {
-      throw new Error(data.detail || 'Authentication failed');
+      let errorMsg = `HTTP ${response.status} ${response.statusText}`;
+      if (data && data.detail) {
+        errorMsg = typeof data.detail === 'string' ? data.detail : JSON.stringify(data.detail);
+      }
+      throw new Error(errorMsg);
     }
     return data;
   },
   
   register: async (email: string, password: string, type: 'organizer' | 'worker') => {
-    const response = await fetch(`${API_BASE}/auth/register`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, password, user_type: type })
-    });
+    let response;
+    try {
+      response = await fetch(`${API_BASE}/auth/register`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password, user_type: type })
+      });
+    } catch (err: any) {
+      throw new Error(`Cannot connect to backend API at ${API_BASE}. Make sure the server is running.`);
+    }
     
-    const data = await response.json();
+    let data;
+    try {
+      data = await response.json();
+    } catch (e) {
+      throw new Error(`Invalid JSON response from server (Status ${response.status})`);
+    }
+
     if (!response.ok) {
-      throw new Error(data.detail || 'Authentication failed');
+      let errorMsg = `HTTP ${response.status} ${response.statusText}`;
+      if (data && data.detail) {
+        errorMsg = typeof data.detail === 'string' ? data.detail : JSON.stringify(data.detail);
+      }
+      throw new Error(errorMsg);
     }
     return data;
   }

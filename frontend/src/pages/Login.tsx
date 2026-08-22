@@ -64,6 +64,27 @@ export const Login = () => {
           {type} Portal
         </p>
 
+        {import.meta.env.VITE_DEMO_MODE === 'true' && type === 'organizer' && (
+          <div className="mb-6">
+            <button
+              type="button"
+              onClick={() => {
+                setEmail('demo@crewconnect.com');
+                setPassword('Demo@123');
+                setIsLogin(true);
+              }}
+              className="w-full bg-indigo-100 hover:bg-indigo-200 text-indigo-800 py-3 rounded-lg font-bold border border-indigo-300 shadow-sm transition-all flex justify-center items-center gap-2"
+            >
+              <span className="text-xl">🚀</span> Try Hackathon Demo
+            </button>
+            <div className="flex items-center justify-center space-x-4 mt-6 mb-2">
+              <div className="h-px bg-slate-200 flex-1"></div>
+              <span className="text-slate-400 text-sm font-medium">OR</span>
+              <div className="h-px bg-slate-200 flex-1"></div>
+            </div>
+          </div>
+        )}
+
         {error && (
           <div className="mb-4 p-3 bg-red-50 text-red-600 text-sm rounded-lg border border-red-100">
             {error}

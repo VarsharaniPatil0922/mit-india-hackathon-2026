@@ -1,11 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { PlusCircle, Calendar, MapPin, Users, TrendingUp, Clock, CheckCircle } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { API_BASE } from '../services/api';
 
 export const OrganizerDashboard = () => {
-  const { user } = useAuth();
+  const { user, logout } = useAuth();
+  const navigate = useNavigate();
   
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
@@ -17,7 +18,16 @@ export const OrganizerDashboard = () => {
         const response = await fetch(`${API_BASE}/organizer/dashboard`, {
           headers: { 'Authorization': `Bearer ${user?.token}` }
         });
-        if (!response.ok) throw new Error('Failed to fetch dashboard data');
+        if (response.status === 401) {
+          logout();
+          navigate('/');
+          return;
+        }
+        if (!response.ok) {
+          const errText = await response.text();
+          console.error("API Error Response:", errText);
+          throw new Error(`Failed to fetch dashboard data: HTTP ${response.status} - ${errText}`);
+        }
         const json = await response.json();
         setData(json);
       } catch (err: any) {
@@ -101,6 +111,11 @@ export const OrganizerDashboard = () => {
               <div className="flex-1">
                 <div className="flex items-center gap-3 mb-2">
                   <h3 className="text-lg font-bold text-slate-900">{event.title}</h3>
+                  {event.title === "MIT National Hackathon Demo Event" && (
+                    <span className="px-2 py-0.5 rounded text-[10px] font-black bg-purple-100 text-purple-700 uppercase tracking-wider border border-purple-200">
+                      DEMO EVENT
+                    </span>
+                  )}
                   <span className={`px-2.5 py-0.5 rounded-full text-xs font-semibold border ${event.statusColor}`}>
                     {event.status}
                   </span>
@@ -134,12 +149,21 @@ export const OrganizerDashboard = () => {
 
               {/* Actions */}
               <div className="w-full md:w-auto flex justify-end pl-4">
-                <Link
-                  to={`/organizer/matching/${event.id}`}
-                  className="px-4 py-2 bg-white border border-slate-200 rounded-lg text-sm font-semibold text-slate-700 hover:bg-slate-50 hover:border-slate-300 transition-colors whitespace-nowrap"
-                >
-                  Manage Crew
-                </Link>
+                {event.title === "MIT National Hackathon Demo Event" ? (
+                  <Link
+                    to={`/organizer/matching/${event.id}`}
+                    className="px-5 py-2.5 bg-gradient-to-r from-indigo-600 to-purple-600 text-white rounded-lg text-sm font-bold shadow-md hover:shadow-lg hover:scale-105 transition-all whitespace-nowrap"
+                  >
+                    ✨ View AI Matching
+                  </Link>
+                ) : (
+                  <Link
+                    to={`/organizer/matching/${event.id}`}
+                    className="px-4 py-2 bg-white border border-slate-200 rounded-lg text-sm font-semibold text-slate-700 hover:bg-slate-50 hover:border-slate-300 transition-colors whitespace-nowrap"
+                  >
+                    Manage Crew
+                  </Link>
+                )}
               </div>
 
             </div>
