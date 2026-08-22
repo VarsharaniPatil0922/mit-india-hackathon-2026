@@ -17,7 +17,7 @@ export const CrewSummary = () => {
   const fetchCrewAndPayments = async () => {
     if (!user || !user.token) return;
     try {
-      const response = await fetch(`${API_BASE}/crew/${eventId}`, {
+      const response = await fetch(`${API_BASE}/crew/summary/${eventId}`, {
         headers: {
           'Authorization': `Bearer ${user.token}`
         }
@@ -25,6 +25,9 @@ export const CrewSummary = () => {
       if (response.ok) {
         const result = await response.json();
         setData(result);
+      } else {
+        const text = await response.text();
+        console.error("Failed to load summary:", text);
       }
 
       try {
@@ -48,7 +51,7 @@ export const CrewSummary = () => {
     setIsProcessing(true);
     try {
       // Create a payment for each assignment
-      for (const item of data.crew) {
+      for (const item of data.primary_crew) {
         await paymentsApi.createPayment(item.assignment_id, user!.token!);
       }
       await fetchCrewAndPayments();
@@ -138,8 +141,13 @@ export const CrewSummary = () => {
     return <div className="max-w-5xl mx-auto px-4 py-24 text-center">Loading Invoice...</div>;
   }
 
-  if (!data || !data.crew) {
-    return <div className="max-w-5xl mx-auto px-4 py-24 text-center text-red-500">Failed to load crew data.</div>;
+  if (!data || !data.primary_crew) {
+    return (
+      <div className="max-w-5xl mx-auto px-4 py-24 text-center">
+        <div className="text-red-500 font-bold mb-2">Failed to load crew data.</div>
+        <p className="text-slate-500 text-sm">Make sure Event {eventId} exists and has crew assigned.</p>
+      </div>
+    );
   }
 
   const escrowStatus = payments.length === 0 ? 'NONE' : payments[0].status;
@@ -148,8 +156,8 @@ export const CrewSummary = () => {
   return (
     <div className="max-w-5xl mx-auto px-4 py-12">
       <div className="mb-10 text-center">
-        <h1 className="text-3xl font-bold text-slate-900 mb-3">Review & Checkout</h1>
-        <p className="text-slate-600">Secure your crew by funding the escrow. Funds are only released after successful event completion.</p>
+        <h1 className="text-3xl font-bold text-slate-900 mb-3">AI Selected Demo Crew</h1>
+        <p className="text-slate-600">Review your AI-optimized crew and secure them by funding the escrow.</p>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
@@ -158,14 +166,14 @@ export const CrewSummary = () => {
         <div className="lg:col-span-2 space-y-6">
           <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
             <div className="px-6 py-4 bg-slate-50 border-b border-slate-200 flex justify-between items-center">
-              <h2 className="font-bold text-slate-900">Crew Invoice</h2>
+              <h2 className="font-bold text-slate-900">Primary Crew Invoice</h2>
               <span className="px-3 py-1 bg-indigo-100 text-indigo-700 font-semibold rounded-full text-xs uppercase tracking-wider">
-                {data.crew.length} Roles Filled
+                {data.primary_crew.length} Roles Filled
               </span>
             </div>
             
             <div className="divide-y divide-slate-100">
-              {data.crew.map((item: any, idx: number) => (
+              {data.primary_crew.map((item: any, idx: number) => (
                 <div key={idx} className="p-6 flex items-center justify-between">
                   <div className="flex items-center gap-4">
                     <div className="w-12 h-12 bg-slate-100 rounded-full flex items-center justify-center text-slate-400">
@@ -200,6 +208,38 @@ export const CrewSummary = () => {
               </div>
             </div>
           </div>
+
+          {/* Backup Crew Section */}
+          {data.backup_crew && data.backup_crew.length > 0 && (
+            <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden mt-8">
+              <div className="px-6 py-4 bg-slate-50 border-b border-slate-200 flex justify-between items-center">
+                <h2 className="font-bold text-slate-900">Backup Candidates</h2>
+                <span className="px-3 py-1 bg-slate-200 text-slate-600 font-semibold rounded-full text-xs uppercase tracking-wider">
+                  {data.backup_crew.length} On Standby
+                </span>
+              </div>
+              <div className="divide-y divide-slate-100">
+                {data.backup_crew.map((backup: any, idx: number) => (
+                  <div key={idx} className="p-4 flex items-center justify-between opacity-75 hover:opacity-100 transition-opacity">
+                    <div className="flex items-center gap-4">
+                      <div className="w-10 h-10 bg-slate-100 rounded-full flex items-center justify-center text-slate-400">
+                        <ShieldCheck className="w-5 h-5" />
+                      </div>
+                      <div>
+                        <p className="font-bold text-slate-800">{backup.name}</p>
+                        <p className="text-xs text-slate-500">{backup.role} • Match: {backup.score}%</p>
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <span className="px-2 py-1 bg-slate-100 text-slate-500 text-[10px] font-bold uppercase rounded">
+                        Standby
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Right Column: Payment */}

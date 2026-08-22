@@ -350,7 +350,11 @@ def run_optimization_pipeline(event_id: int, db: Session):
                         "role": role.role_name,
                         "score": round(c["score"], 2),
                         "estimated_price": round((worker.price_min + worker.price_max) / 2, 2),
-                        "rank": rank
+                        "rank": rank,
+                        "rating": worker.rating,
+                        "reliability_score": worker.reliability_score,
+                        "distanceKm": round(c["distanceKm"], 1),
+                        "matchReasons": c["matchReasons"]
                     })
                     rank += 1
                     if len(role_backups) == 5:
@@ -552,6 +556,67 @@ def get_crew_for_event(event_id: int, db: Session = Depends(get_db), current_use
     return {
         "event_id": event.id,
         "crew": crew_list,
+        "budget": {
+            "total": event.budget,
+            "used": total_cost,
+            "remaining": event.budget - total_cost
+        }
+    }
+
+@app.get("/api/crew/summary/{event_id}")
+def get_crew_summary(event_id: int, db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_user)):
+    org = db.query(models.Organizer).filter(models.Organizer.user_id == current_user.id).first()
+    event = db.query(models.Event).filter(models.Event.id == event_id).first()
+    if not event:
+        raise HTTPException(status_code=404, detail="Event not found")
+        
+    if not org or event.organizer_id != org.id:
+        raise HTTPException(status_code=403, detail="Not authorized to access this event")
+        
+    assignments = db.query(models.CrewAssignment).filter(
+        models.CrewAssignment.event_id == event_id,
+        models.CrewAssignment.status.in_(["pending", "confirmed"])
+    ).all()
+    
+    primary_crew = []
+    total_cost = 0
+    for a in assignments:
+        primary_crew.append({
+            "assignment_id": a.id,
+            "role": a.role.role_name,
+            "quantity": 1,
+            "selected": {
+                "id": a.worker.id,
+                "name": a.worker.name,
+                "price": a.price_agreed,
+                "rating": a.worker.rating,
+                "reliability": a.worker.reliability_score
+            },
+            "status": a.status
+        })
+        total_cost += a.price_agreed
+
+    opt_result = run_optimization_pipeline(event_id, db)
+    backup_pools = opt_result.get("backup_pools", [])
+    
+    # Extract flattened backups from the pools, limiting to 1 per role (4 total)
+    backup_crew = []
+    for pool in backup_pools:
+        backups_for_role = pool.get("backups", [])
+        if backups_for_role:
+            backup = backups_for_role[0] # Take the top backup for this role
+            backup_crew.append({
+                "role": pool.get("role_name"),
+                "worker_id": backup.get("worker_id"),
+                "name": backup.get("name"),
+                "score": backup.get("score"),
+                "price": backup.get("estimated_price")
+            })
+            
+    return {
+        "event_id": event.id,
+        "primary_crew": primary_crew,
+        "backup_crew": backup_crew,
         "budget": {
             "total": event.budget,
             "used": total_cost,

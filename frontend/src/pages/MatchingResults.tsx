@@ -265,11 +265,16 @@ export const MatchingResults = () => {
       )}
 
       <div className="mb-8 border-b border-slate-200 pb-6">
-        <div className="flex items-center space-x-3 mb-2">
-          <CheckCircle className="w-8 h-8 text-indigo-600" />
-          <h1 className="text-3xl font-bold text-slate-900">AI Crew Optimization Complete</h1>
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-2">
+          <div className="flex items-center space-x-3">
+            <CheckCircle className="w-8 h-8 text-indigo-600" />
+            <h1 className="text-3xl font-bold text-slate-900">AI Crew Optimization Complete</h1>
+          </div>
+          <span className="px-4 py-1.5 bg-indigo-100 text-indigo-800 font-bold rounded-full text-sm uppercase tracking-wider flex items-center justify-center shadow-sm">
+            🚀 MIT NATIONAL HACKATHON DEMO
+          </span>
         </div>
-        <p className="text-slate-600 mb-6">Our AI evaluated available workers and selected the optimal crew based on skill, distance, reliability, and budget.</p>
+        <p className="text-slate-600 mb-6 font-medium">Our AI evaluated available workers and selected the optimal crew based on skill, distance, reliability, availability, and budget.</p>
         
         {/* SUMMARY DASHBOARD */}
         {(() => {
@@ -396,7 +401,7 @@ export const MatchingResults = () => {
                           <div className="flex flex-col gap-1 mt-2 bg-indigo-50/50 p-3 rounded-lg border border-indigo-100">
                             <span className="text-xs font-bold text-indigo-800 uppercase tracking-wider mb-1">Why this worker?</span>
                             <div className="flex flex-wrap gap-2">
-                              {worker.matchReasons.map((reason: string, i: number) => (
+                              {worker.matchReasons?.map((reason: string, i: number) => (
                                 <span key={i} className="px-2 py-1 bg-white text-indigo-700 text-xs font-medium rounded shadow-sm border border-indigo-100 flex items-center">
                                   <CheckCircle className="w-3 h-3 text-emerald-500 mr-1" /> {reason}
                                 </span>

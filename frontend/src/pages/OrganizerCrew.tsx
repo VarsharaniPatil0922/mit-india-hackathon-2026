@@ -38,6 +38,7 @@ export const OrganizerCrew = () => {
   const [workers, setWorkers] = useState<WorkerResult[]>([]);
   const [events, setEvents] = useState<Event[]>([]);
   const [selectedEventId, setSelectedEventId] = useState<string>('');
+  const [crewSummary, setCrewSummary] = useState<any>(null);
 
   // Filter States
   const [skills, setSkills] = useState<string[]>([]);
@@ -58,7 +59,8 @@ export const OrganizerCrew = () => {
           const data = await res.json();
           setEvents(data);
           if (data.length > 0) {
-            setSelectedEventId(data[0].event_id.toString());
+            const demoEvent = data.find((e: any) => e.event_id === 55) || data.find((e: any) => e.event_type.includes("MIT"));
+            setSelectedEventId(demoEvent ? demoEvent.event_id.toString() : data[0].event_id.toString());
           }
         }
       } catch (err) {
@@ -93,6 +95,18 @@ export const OrganizerCrew = () => {
         const data = await res.json();
         setWorkers(data);
       }
+      
+      // Fetch summary to determine primary/backup
+      try {
+        const sumRes = await fetch(`${API_BASE}/crew/summary/${selectedEventId}`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        if (sumRes.ok) {
+          const sumData = await sumRes.json();
+          setCrewSummary(sumData);
+        }
+      } catch (e) {}
+
     } catch (err) {
       console.error("Failed to fetch workers", err);
     } finally {
@@ -120,19 +134,76 @@ export const OrganizerCrew = () => {
     worker.skill_category.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
+  // Compute demo stats
+  const isDemo = selectedEventId === '55' || (events.find(e => e.event_id.toString() === selectedEventId)?.event_type.includes("MIT"));
+  
+  let primaryWorkers = new Set<string>();
+  let backupWorkers = new Set<string>();
+  if (crewSummary) {
+    if (crewSummary.primary_crew) crewSummary.primary_crew.forEach((c: any) => primaryWorkers.add(c.selected.id.toString()));
+    if (crewSummary.backup_crew) crewSummary.backup_crew.forEach((c: any) => backupWorkers.add(c.id.toString()));
+  }
+
+  // If demo, filter workers to ONLY those in primary or backup
+  let displayCrew = filteredCrew;
+  if (isDemo && crewSummary) {
+    displayCrew = filteredCrew.filter(w => primaryWorkers.has(w.worker_id.toString()) || backupWorkers.has(w.worker_id.toString()));
+  }
+
+  const primaryCount = displayCrew.filter(w => primaryWorkers.has(w.worker_id.toString())).length;
+  const backupCount = displayCrew.filter(w => backupWorkers.has(w.worker_id.toString())).length;
+  const totalCount = displayCrew.length;
+  const avgReliability = totalCount > 0 ? Math.round(displayCrew.reduce((acc, w) => acc + w.reliability_score, 0) / totalCount) : 0;
+
   return (
     <div className="flex h-full relative">
       <div className={`flex-1 space-y-8 animate-in fade-in duration-300 pr-4 ${showFilters ? 'mr-[320px]' : ''} transition-all`}>
         {/* Header */}
         <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-4">
           <div>
-            <h1 className="text-3xl font-bold text-slate-900 tracking-tight">My Crew Network</h1>
-            <p className="text-slate-500 mt-1">Manage and view details of all the workers in your network.</p>
+            <div className="flex items-center gap-3 mb-2">
+              <h1 className="text-3xl font-bold text-slate-900 tracking-tight">My Crew Network</h1>
+              {isDemo && (
+                <span className="px-3 py-1 bg-indigo-100 text-indigo-700 font-bold rounded-full text-xs uppercase tracking-wider flex items-center gap-1">
+                  🚀 DEMO CREW
+                </span>
+              )}
+            </div>
+            {isDemo && (
+              <div className="inline-flex items-center gap-2 px-3 py-1 bg-emerald-50 border border-emerald-200 text-emerald-700 rounded-lg text-sm font-semibold mb-2">
+                MIT NATIONAL HACKATHON
+              </div>
+            )}
+            <p className="text-slate-500 mt-1">
+              {isDemo ? `${totalCount} demo crew members available` : 'Manage and view details of all the workers in your network.'}
+            </p>
           </div>
           <div className="flex bg-indigo-50 text-indigo-700 px-4 py-2 rounded-lg font-semibold border border-indigo-100 shadow-sm">
-            Total Workers: {workers.length}
+            Total Workers: {totalCount}
           </div>
         </div>
+
+        {/* Demo Summary Cards */}
+        {isDemo && crewSummary && (
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm text-center">
+              <p className="text-slate-500 text-sm font-medium mb-1">Total Workers</p>
+              <p className="text-2xl font-bold text-slate-900">{totalCount}</p>
+            </div>
+            <div className="bg-indigo-50 p-4 rounded-xl border border-indigo-100 shadow-sm text-center">
+              <p className="text-indigo-600 text-sm font-medium mb-1">Primary Crew</p>
+              <p className="text-2xl font-bold text-indigo-900">{primaryCount}</p>
+            </div>
+            <div className="bg-emerald-50 p-4 rounded-xl border border-emerald-100 shadow-sm text-center">
+              <p className="text-emerald-600 text-sm font-medium mb-1">Backup Crew</p>
+              <p className="text-2xl font-bold text-emerald-900">{backupCount}</p>
+            </div>
+            <div className="bg-blue-50 p-4 rounded-xl border border-blue-100 shadow-sm text-center">
+              <p className="text-blue-600 text-sm font-medium mb-1">Avg Reliability</p>
+              <p className="text-2xl font-bold text-blue-900">{avgReliability}%</p>
+            </div>
+          </div>
+        )}
 
         {/* Filters & Search */}
         <div className="flex flex-col md:flex-row gap-4">
@@ -176,7 +247,11 @@ export const OrganizerCrew = () => {
           <div className="py-12 text-center text-slate-500 font-medium animate-pulse">Loading crew...</div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
-            {filteredCrew.map(worker => (
+            {displayCrew.map(worker => {
+              const isPrimary = primaryWorkers.has(worker.worker_id.toString());
+              const isBackup = backupWorkers.has(worker.worker_id.toString());
+
+              return (
               <div key={worker.worker_id} className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden hover:border-indigo-200 hover:shadow-md transition-all group flex flex-col h-full">
                 
                 <div className="p-6 flex-1">
@@ -191,6 +266,16 @@ export const OrganizerCrew = () => {
                           <span className="px-2 py-0.5 bg-slate-100 text-slate-600 text-[10px] uppercase font-bold tracking-wider rounded-md">
                             {worker.skill_category}
                           </span>
+                          {isPrimary && (
+                            <span className="px-2 py-0.5 bg-indigo-100 text-indigo-700 text-[10px] uppercase font-bold tracking-wider rounded-md">
+                              Primary
+                            </span>
+                          )}
+                          {isBackup && (
+                            <span className="px-2 py-0.5 bg-emerald-100 text-emerald-700 text-[10px] uppercase font-bold tracking-wider rounded-md">
+                              Backup
+                            </span>
+                          )}
                         </div>
                       </div>
                     </div>
@@ -235,9 +320,9 @@ export const OrganizerCrew = () => {
                 </div>
 
               </div>
-            ))}
+            )})}
 
-            {filteredCrew.length === 0 && (
+            {displayCrew.length === 0 && (
               <div className="col-span-full py-12 text-center bg-white border border-slate-200 rounded-2xl border-dashed">
                 <p className="text-slate-500 font-medium">No crew members found matching your filters.</p>
               </div>

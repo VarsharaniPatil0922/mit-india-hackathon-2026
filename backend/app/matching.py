@@ -55,7 +55,8 @@ def filter_distance(worker: Worker, event: Event) -> tuple[bool, float]:
 def filter_booking_conflicts(worker: Worker, event: Event, db: Session) -> bool:
     assignments = db.query(CrewAssignment).filter(
         CrewAssignment.worker_id == worker.id,
-        CrewAssignment.status.in_(["pending", "accepted"])
+        CrewAssignment.status.in_(["pending", "accepted", "confirmed"]),
+        CrewAssignment.event_id != event.id
     ).all()
     
     fmt = "%H:%M"
@@ -281,7 +282,11 @@ def optimize_crew_combinations(event: Event, roles: List[EventRole], candidates_
             "role": item["role"]["role_name"],
             "role_id": item["role"]["role_id"],
             "estimated_price": (c["worker"].price_min + c["worker"].price_max) / 2.0,
-            "score": c["score"]
+            "score": c["score"],
+            "rating": c["worker"].rating,
+            "reliability_score": c["worker"].reliability_score,
+            "distanceKm": round(c["distanceKm"], 1),
+            "matchReasons": c["matchReasons"]
         })
         
     return {

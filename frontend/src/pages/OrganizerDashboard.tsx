@@ -56,6 +56,7 @@ export const OrganizerDashboard = () => {
   ];
 
   const recentEvents = data?.recent_events || [];
+  const demoEvent = recentEvents.find((e: any) => e.title.includes("MIT National Hackathon"));
 
   return (
     <div className="space-y-8">
@@ -75,6 +76,64 @@ export const OrganizerDashboard = () => {
           <span>Create New Event</span>
         </Link>
       </div>
+
+      {/* Demo Banner */}
+      {import.meta.env.VITE_DEMO_MODE === 'true' && demoEvent && (
+        <div className="bg-gradient-to-br from-indigo-900 to-purple-900 rounded-2xl p-8 text-white shadow-xl relative overflow-hidden">
+          <div className="absolute top-0 right-0 p-4 opacity-10">
+            <CheckCircle className="w-48 h-48" />
+          </div>
+          <div className="relative z-10">
+            <span className="px-3 py-1 bg-white/20 rounded-full text-xs font-black tracking-widest mb-4 inline-block">DEMO EVENT</span>
+            <h2 className="text-3xl font-black mb-2">AI CREW OPTIMIZATION READY</h2>
+            <p className="text-indigo-200 mb-8 max-w-2xl text-lg">
+              {demoEvent.title} has been seeded with realistic data. The backend matching engine has successfully evaluated candidates based on proximity, skills, budget, and reliability.
+            </p>
+            
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+              <div className="bg-white/10 rounded-xl p-4 border border-white/10">
+                <p className="text-indigo-200 text-xs font-bold uppercase tracking-wider">Evaluated</p>
+                <p className="text-2xl font-black">18 Workers</p>
+              </div>
+              <div className="bg-white/10 rounded-xl p-4 border border-white/10">
+                <p className="text-indigo-200 text-xs font-bold uppercase tracking-wider">Required</p>
+                <p className="text-2xl font-black">8 Crew</p>
+              </div>
+              <div className="bg-emerald-500/20 rounded-xl p-4 border border-emerald-500/30">
+                <p className="text-emerald-300 text-xs font-bold uppercase tracking-wider">Status</p>
+                <p className="text-xl font-bold text-emerald-100">8 PRIMARY CREW</p>
+              </div>
+              <div className="bg-blue-500/20 rounded-xl p-4 border border-blue-500/30">
+                <p className="text-blue-300 text-xs font-bold uppercase tracking-wider">Status</p>
+                <p className="text-xl font-bold text-blue-100">4 BACKUPS</p>
+              </div>
+            </div>
+
+            <div className="flex flex-col md:flex-row gap-6 items-start md:items-center justify-between">
+              <div className="flex flex-col space-y-2 text-sm text-indigo-100">
+                <div className="flex items-center gap-2"><Calendar className="w-4 h-4 text-indigo-300" /> {demoEvent.date}</div>
+                <div className="flex items-center gap-2"><MapPin className="w-4 h-4 text-indigo-300" /> {demoEvent.location}</div>
+                <div className="flex items-center gap-2"><TrendingUp className="w-4 h-4 text-indigo-300" /> Budget: ₹{demoEvent.budget.toLocaleString()}</div>
+              </div>
+              
+              <div className="flex flex-col sm:flex-row gap-4 mt-4 w-full md:w-auto">
+                <Link
+                  to={`/organizer/crew-summary/${demoEvent.id}`}
+                  className="bg-white text-indigo-900 hover:bg-indigo-50 px-6 py-4 rounded-xl font-black text-lg shadow-lg hover:shadow-xl hover:scale-105 transition-all flex items-center justify-center gap-3 whitespace-nowrap"
+                >
+                  👁️ VIEW DEMO CREW
+                </Link>
+                <Link
+                  to={`/organizer/matching/${demoEvent.id}`}
+                  className="bg-indigo-700 hover:bg-indigo-600 text-white border border-indigo-500 px-6 py-4 rounded-xl font-bold text-lg shadow-lg hover:shadow-xl hover:scale-105 transition-all flex items-center justify-center gap-3 whitespace-nowrap"
+                >
+                  ✨ VIEW AI MATCHING
+                </Link>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Stats Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
